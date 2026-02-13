@@ -1,0 +1,37 @@
+{
+  description = "ssukka — HTML obfuscation tool";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, rust-overlay, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        overlays = [ (import rust-overlay) ];
+        pkgs = import nixpkgs { inherit system overlays; };
+        rustToolchain = pkgs.rust-bin.stable."1.93.0".default;
+      in
+      {
+        packages.default = pkgs.rustPlatform.buildRustPackage {
+          pname = "ssukka";
+          version = "0.1.0";
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+        };
+
+        devShells.default = pkgs.mkShell {
+          buildInputs = [
+            rustToolchain
+            pkgs.cargo-watch
+            pkgs.clippy
+          ];
+        };
+      }
+    );
+}

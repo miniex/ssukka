@@ -1,0 +1,9 @@
+target/
+.git/
+*.html
+*.md
+LICENSE
+flake.nix
+flake.lock
+.dockerignore
+Dockerfile

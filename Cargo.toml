@@ -1,0 +1,18 @@
+[package]
+name = "ssukka"
+version = "0.1.0"
+description = "HTML obfuscation library and CLI for Rust. Renders identically in browsers but is hard for humans to read."
+license = "MIT"
+authors = ["Han Damin <miniex@daminstudio.net>"]
+edition = "2021"
+publish = true
+repository = "https://github.com/miniex/ssukka"
+readme = "README.md"
+rust-version = "1.93.0"
+keywords = ["html", "obfuscation", "css", "javascript"]
+categories = ["web-programming", "encoding"]
+
+[dependencies]
+lightningcss = "1.0.0-alpha.70"
+lol_html = "2.7.1"
+rand = "0.10.0"
