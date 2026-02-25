@@ -10,7 +10,7 @@ HTML obfuscation library and CLI for Rust. Renders identically in browsers but i
 - **HTML entity encoding** — text and attribute values encoded as decimal/hex/named entities
 - **Tag case randomization** — `<div>` becomes `<DiV>`
 - **Attribute shuffling** — randomized attribute order
-- **CSS minification** — via [lightningcss](https://github.com/nicbarker/lightningcss)
+- **CSS minification** — via [lightningcss](https://github.com/parcel-bundler/lightningcss)
 - **CSS selector unicode escaping** — `.foo` becomes `.\66\6f\6f`
 - **JS string encoding** — string literals encoded as `\xHH` / `\uXXXX`
 - **JS minification** — comment removal and whitespace compression
