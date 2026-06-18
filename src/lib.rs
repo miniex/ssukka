@@ -2,11 +2,18 @@ pub mod analysis;
 pub mod config;
 pub mod css;
 pub mod error;
+pub mod honeypot;
 pub mod html;
+pub mod inline;
 pub mod js;
+pub mod js_ast;
 pub mod obfuscator;
+pub mod structural;
 pub mod symbol_map;
 pub mod transform;
+
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
 pub use config::ObfuscationConfig;
 pub use error::{Result, SsukkaError};

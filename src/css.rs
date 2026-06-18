@@ -5,16 +5,9 @@ use crate::symbol_map::SymbolMap;
 ///
 /// Uses lightningcss to parse the CSS and walks all rules to find
 /// class selectors (`.foo`) and ID selectors (`#bar`).
-pub fn extract_selectors(
-    css: &str,
-    symbols: &mut SymbolMap,
-    rename_classes: bool,
-    rename_ids: bool,
-) {
-    let stylesheet = lightningcss::stylesheet::StyleSheet::parse(
-        css,
-        lightningcss::stylesheet::ParserOptions::default(),
-    );
+pub fn extract_selectors(css: &str, symbols: &mut SymbolMap, rename_classes: bool, rename_ids: bool) {
+    let stylesheet =
+        lightningcss::stylesheet::StyleSheet::parse(css, lightningcss::stylesheet::ParserOptions::default());
 
     let stylesheet = match stylesheet {
         Ok(s) => s,
@@ -39,35 +32,31 @@ fn extract_from_rule(
             for selector in style_rule.selectors.0.iter() {
                 for component in selector.iter_raw_match_order() {
                     match component {
-                        lightningcss::selector::Component::Class(name) => {
-                            if rename_classes {
-                                symbols.register_class(&name.0);
-                            }
-                        }
-                        lightningcss::selector::Component::ID(name) => {
-                            if rename_ids {
-                                symbols.register_id(&name.0);
-                            }
-                        }
-                        _ => {}
+                        lightningcss::selector::Component::Class(name) if rename_classes => {
+                            symbols.register_class(&name.0);
+                        },
+                        lightningcss::selector::Component::ID(name) if rename_ids => {
+                            symbols.register_id(&name.0);
+                        },
+                        _ => {},
                     }
                 }
             }
             for nested in style_rule.rules.0.iter() {
                 extract_from_rule(nested, symbols, rename_classes, rename_ids);
             }
-        }
+        },
         CssRule::Media(media) => {
             for r in media.rules.0.iter() {
                 extract_from_rule(r, symbols, rename_classes, rename_ids);
             }
-        }
+        },
         CssRule::Supports(supports) => {
             for r in supports.rules.0.iter() {
                 extract_from_rule(r, symbols, rename_classes, rename_ids);
             }
-        }
-        _ => {}
+        },
+        _ => {},
     }
 }
 
@@ -80,12 +69,11 @@ pub fn transform_css(
     rename_classes: bool,
     rename_ids: bool,
 ) -> Result<String> {
-    // Step 1: Replace class/ID names via string substitution in the CSS text
     let mut result = css.to_owned();
 
     if rename_classes {
         let mut class_pairs: Vec<_> = symbols.classes().iter().collect();
-        class_pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        class_pairs.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
         for (original, obfuscated) in &class_pairs {
             result = result.replace(&format!(".{original}"), &format!(".{obfuscated}"));
         }
@@ -93,21 +81,18 @@ pub fn transform_css(
 
     if rename_ids {
         let mut id_pairs: Vec<_> = symbols.ids().iter().collect();
-        id_pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        id_pairs.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
         for (original, obfuscated) in &id_pairs {
             result = result.replace(&format!("#{original}"), &format!("#{obfuscated}"));
         }
     }
 
-    // Step 2: Minify with lightningcss
     if minify {
         // Parse from an owned copy so the borrow is scoped
         let to_parse = result.clone();
-        let stylesheet = lightningcss::stylesheet::StyleSheet::parse(
-            &to_parse,
-            lightningcss::stylesheet::ParserOptions::default(),
-        )
-        .map_err(|e| SsukkaError::Css(e.to_string()))?;
+        let stylesheet =
+            lightningcss::stylesheet::StyleSheet::parse(&to_parse, lightningcss::stylesheet::ParserOptions::default())
+                .map_err(|e| SsukkaError::Css(e.to_string()))?;
 
         let print_options = lightningcss::printer::PrinterOptions {
             minify: true,
@@ -119,7 +104,6 @@ pub fn transform_css(
         result = output.code;
     }
 
-    // Step 3: Unicode-escape selectors
     if unicode_escape {
         result = unicode_escape_selectors(&result);
     }
@@ -129,7 +113,7 @@ pub fn transform_css(
 
 /// Apply unicode escape sequences to class and ID selectors in CSS.
 ///
-/// Converts `.foo` → `.\66\6f\6f` and `#bar` → `#\62\61\72`
+/// Converts `.foo` -> `.\66\6f\6f` and `#bar` -> `#\62\61\72`
 fn unicode_escape_selectors(css: &str) -> String {
     let mut out = String::with_capacity(css.len() * 2);
     let chars: Vec<char> = css.chars().collect();

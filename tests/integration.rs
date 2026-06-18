@@ -27,11 +27,7 @@ fn full_obfuscation_pipeline() {
 </body>
 </html>"##;
 
-    let result = Obfuscator::builder()
-        .seed(42)
-        .build()
-        .obfuscate(html)
-        .unwrap();
+    let result = Obfuscator::builder().seed(42).build().obfuscate(html).unwrap();
 
     // Original class/ID names should not appear
     assert!(!result.contains(r#"class="container""#));
@@ -51,17 +47,9 @@ fn full_obfuscation_pipeline() {
 fn deterministic_output_with_seed() {
     let html = r#"<div class="foo" id="bar">text</div>"#;
 
-    let r1 = Obfuscator::builder()
-        .seed(42)
-        .build()
-        .obfuscate(html)
-        .unwrap();
+    let r1 = Obfuscator::builder().seed(42).build().obfuscate(html).unwrap();
 
-    let r2 = Obfuscator::builder()
-        .seed(42)
-        .build()
-        .obfuscate(html)
-        .unwrap();
+    let r2 = Obfuscator::builder().seed(42).build().obfuscate(html).unwrap();
 
     assert_eq!(r1, r2);
 }
@@ -70,17 +58,9 @@ fn deterministic_output_with_seed() {
 fn different_seeds_produce_different_output() {
     let html = r#"<div class="foo">text</div>"#;
 
-    let r1 = Obfuscator::builder()
-        .seed(1)
-        .build()
-        .obfuscate(html)
-        .unwrap();
+    let r1 = Obfuscator::builder().seed(1).build().obfuscate(html).unwrap();
 
-    let r2 = Obfuscator::builder()
-        .seed(2)
-        .build()
-        .obfuscate(html)
-        .unwrap();
+    let r2 = Obfuscator::builder().seed(2).build().obfuscate(html).unwrap();
 
     assert_ne!(r1, r2);
 }
@@ -106,11 +86,7 @@ fn no_rename_preserves_class_names() {
 fn comment_removal() {
     let html = "<!-- secret --><div>visible</div><!-- hidden -->";
 
-    let result = Obfuscator::builder()
-        .seed(42)
-        .build()
-        .obfuscate(html)
-        .unwrap();
+    let result = Obfuscator::builder().seed(42).build().obfuscate(html).unwrap();
 
     assert!(!result.contains("secret"));
     assert!(!result.contains("hidden"));
@@ -254,4 +230,115 @@ fn simple_api() {
     let result = ssukka::obfuscate(html).unwrap();
     // Should produce some output
     assert!(!result.is_empty());
+}
+
+// ---- Advanced (opt-in) features ----
+
+#[test]
+fn honeypots_are_injected_and_hidden() {
+    let html = "<html><body><p>real</p></body></html>";
+    let result = Obfuscator::builder()
+        .seed(42)
+        .inject_honeypots(true)
+        .honeypot_count(5)
+        .build()
+        .obfuscate(html)
+        .unwrap();
+    // Decoys are present but inert (hidden + aria-hidden + non-focusable).
+    assert_eq!(result.matches("aria-hidden=\"true\"").count(), 5);
+    assert!(result.contains("display:none"));
+    assert!(result.contains("tabindex=\"-1\""));
+}
+
+#[test]
+fn structural_obfuscation_hides_text_and_injects_restore() {
+    let html = "<html><body><p>Secret paragraph text</p></body></html>";
+    let result = Obfuscator::builder()
+        .seed(42)
+        .structural_obfuscation(true)
+        .build()
+        .obfuscate(html)
+        .unwrap();
+    // The visible text is gone from static markup; a restore hook remains.
+    assert!(!result.contains("Secret paragraph text"));
+    assert!(result.contains("data-ssk="));
+    assert!(result.contains("TextDecoder"));
+}
+
+#[test]
+fn polymorphic_output_varies_without_seed() {
+    let html = r#"<div class="a"><p>hello world</p></div>"#;
+    let r1 = Obfuscator::builder()
+        .polymorphic(true)
+        .inject_honeypots(true)
+        .build()
+        .obfuscate(html)
+        .unwrap();
+    let r2 = Obfuscator::builder()
+        .polymorphic(true)
+        .inject_honeypots(true)
+        .build()
+        .obfuscate(html)
+        .unwrap();
+    assert_ne!(r1, r2);
+}
+
+#[test]
+fn ast_mangle_hides_local_identifiers() {
+    let html = r#"<script>function compute(alpha, beta) { var gamma = alpha + beta; return gamma; }</script>"#;
+    let result = Obfuscator::builder()
+        .seed(42)
+        .js_ast(true)
+        .mangle_identifiers(true)
+        .build()
+        .obfuscate(html)
+        .unwrap();
+    // Local binding names are mangled away.
+    assert!(!result.contains("gamma"));
+    assert!(!result.contains("alpha"));
+}
+
+#[test]
+fn ast_string_array_hides_literals() {
+    let html = r#"<script>var a = "first secret"; var b = "second secret"; use(a, b);</script>"#;
+    let result = Obfuscator::builder()
+        .seed(42)
+        .js_ast(true)
+        .js_string_encoding(ssukka::config::JsStringEncoding::Array)
+        .build()
+        .obfuscate(html)
+        .unwrap();
+    assert!(!result.contains("first secret"));
+    assert!(!result.contains("second secret"));
+    assert!(result.contains("atob"));
+}
+
+#[test]
+fn ast_falls_back_gracefully_on_unparsable_js() {
+    // Deliberately broken JS - the AST engine must not panic or drop the script;
+    // it falls back to the token path.
+    let html = r#"<script>function ( { this is not valid js ===</script>"#;
+    let result = Obfuscator::builder()
+        .seed(42)
+        .js_ast(true)
+        .mangle_identifiers(true)
+        .build()
+        .obfuscate(html);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn ast_class_rename_still_applies_in_js() {
+    let html =
+        r#"<style>.box{color:red}</style><div class="box"></div><script>document.querySelector(".box");</script>"#;
+    let result = Obfuscator::builder()
+        .seed(42)
+        .js_ast(true)
+        .mangle_identifiers(true)
+        .build()
+        .obfuscate(html)
+        .unwrap();
+    // Class renaming is consistent even on the AST path.
+    assert!(!result.contains("\"box\""));
+    assert!(!result.contains(".box"));
 }

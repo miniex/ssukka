@@ -1,0 +1,3 @@
+# Every shell script in this repo targets POSIX sh - lint them as such
+# regardless of any shebang drift.
+shell=sh

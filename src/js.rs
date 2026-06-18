@@ -1,4 +1,7 @@
+use crate::config::JsStringEncoding;
 use crate::symbol_map::SymbolMap;
+use rand::rngs::StdRng;
+use rand::RngExt;
 
 /// State machine states for JS lexing.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -12,27 +15,29 @@ enum State {
 }
 
 /// Transform JavaScript source: encode string literals, replace class/ID references, minify.
+///
+/// `encoding` selects the string-literal strategy. [`JsStringEncoding::Array`] is
+/// handled by the AST engine; here it degrades to [`JsStringEncoding::Escapes`].
 pub fn transform_js(
     js: &str,
     symbols: &SymbolMap,
-    encode_strings: bool,
+    encoding: JsStringEncoding,
     minify: bool,
     rename_classes: bool,
     rename_ids: bool,
+    rng: &mut StdRng,
 ) -> String {
     let mut result = js.to_owned();
 
-    // Step 1: Replace class/ID references in JS strings
     if rename_classes || rename_ids {
         result = replace_symbol_references(&result, symbols, rename_classes, rename_ids);
     }
 
-    // Step 2: Encode string literals
-    if encode_strings {
-        result = encode_js_strings(&result);
+    // `Array` requires the AST engine; without it we fall back to escapes.
+    if encoding != JsStringEncoding::None {
+        result = encode_js_strings(&result, rng);
     }
 
-    // Step 3: Basic minification (remove comments, collapse whitespace)
     if minify {
         result = minify_js(&result);
     }
@@ -40,11 +45,39 @@ pub fn transform_js(
     result
 }
 
+/// Pick a randomized escape form for a single character.
+///
+/// Only strict-mode-safe forms are emitted (`\xHH`, `\uXXXX`, `\u{..}`); octal
+/// escapes are deliberately avoided since they throw in strict mode / templates.
+fn escape_char(ch: char, out: &mut String, rng: &mut StdRng) {
+    let code = ch as u32;
+    if code <= 0xFF {
+        match rng.random_range(0u8..3) {
+            0 => out.push_str(&format!("\\x{code:02x}")),
+            1 => out.push_str(&format!("\\u{code:04x}")),
+            _ => out.push_str(&format!("\\u{{{code:x}}}")),
+        }
+    } else if code <= 0xFFFF {
+        if rng.random_bool(0.5) {
+            out.push_str(&format!("\\u{code:04x}"));
+        } else {
+            out.push_str(&format!("\\u{{{code:x}}}"));
+        }
+    } else if rng.random_bool(0.5) {
+        out.push_str(&format!("\\u{{{code:x}}}"));
+    } else {
+        // Surrogate pair for characters above the BMP
+        let hi = ((code - 0x10000) >> 10) + 0xD800;
+        let lo = ((code - 0x10000) & 0x3FF) + 0xDC00;
+        out.push_str(&format!("\\u{hi:04x}\\u{lo:04x}"));
+    }
+}
+
 /// Replace class/ID names inside JS string literals.
 ///
 /// Scans for patterns like `"foo"`, `'foo'`, `` `foo` `` and replaces
 /// class/ID names found within them.
-fn replace_symbol_references(
+pub(crate) fn replace_symbol_references(
     js: &str,
     symbols: &SymbolMap,
     rename_classes: bool,
@@ -83,14 +116,14 @@ fn replace_symbol_references(
                     out.push(chars[i]);
                     i += 1;
                 }
-            }
+            },
             State::SingleLineComment => {
                 out.push(chars[i]);
                 if chars[i] == '\n' {
                     state = State::Normal;
                 }
                 i += 1;
-            }
+            },
             State::MultiLineComment => {
                 out.push(chars[i]);
                 if chars[i] == '*' && i + 1 < len && chars[i + 1] == '/' {
@@ -100,7 +133,7 @@ fn replace_symbol_references(
                 } else {
                     i += 1;
                 }
-            }
+            },
             State::SingleQuoteString | State::DoubleQuoteString | State::TemplateString => {
                 let quote = match state {
                     State::SingleQuoteString => '\'',
@@ -109,7 +142,6 @@ fn replace_symbol_references(
                     _ => unreachable!(),
                 };
 
-                // Collect the string content
                 let mut string_content = String::new();
                 while i < len {
                     if chars[i] == '\\' && i + 1 < len {
@@ -117,7 +149,6 @@ fn replace_symbol_references(
                         string_content.push('\\');
                         string_content.push(next);
                         i += 2;
-                        // Consume full multi-char escapes
                         if next == 'u' {
                             if i < len && chars[i] == '{' {
                                 while i < len {
@@ -156,14 +187,14 @@ fn replace_symbol_references(
                 let mut replaced = string_content;
                 if rename_classes {
                     let mut class_pairs: Vec<_> = symbols.classes().iter().collect();
-                    class_pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+                    class_pairs.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
                     for (original, obfuscated) in &class_pairs {
                         replaced = replace_word(&replaced, original, obfuscated);
                     }
                 }
                 if rename_ids {
                     let mut id_pairs: Vec<_> = symbols.ids().iter().collect();
-                    id_pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+                    id_pairs.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
                     for (original, obfuscated) in &id_pairs {
                         replaced = replace_word(&replaced, original, obfuscated);
                     }
@@ -171,23 +202,20 @@ fn replace_symbol_references(
 
                 out.push_str(&replaced);
 
-                // Push closing quote
                 if i < len {
                     out.push(chars[i]);
                     i += 1;
                 }
                 state = State::Normal;
-            }
+            },
         }
     }
 
     out
 }
 
-/// Encode string literals in JS with unicode escape sequences.
-///
-/// `"hello"` → `"\u0068\u0065\u006c\u006c\u006f"`
-fn encode_js_strings(js: &str) -> String {
+/// Encode JS string literals with a randomized mix of escape forms.
+fn encode_js_strings(js: &str, rng: &mut StdRng) -> String {
     let chars: Vec<char> = js.chars().collect();
     let len = chars.len();
     let mut out = String::with_capacity(len * 2);
@@ -221,14 +249,14 @@ fn encode_js_strings(js: &str) -> String {
                     out.push(chars[i]);
                     i += 1;
                 }
-            }
+            },
             State::SingleLineComment => {
                 out.push(chars[i]);
                 if chars[i] == '\n' {
                     state = State::Normal;
                 }
                 i += 1;
-            }
+            },
             State::MultiLineComment => {
                 out.push(chars[i]);
                 if chars[i] == '*' && i + 1 < len && chars[i + 1] == '/' {
@@ -238,7 +266,7 @@ fn encode_js_strings(js: &str) -> String {
                 } else {
                     i += 1;
                 }
-            }
+            },
             State::SingleQuoteString | State::DoubleQuoteString | State::TemplateString => {
                 let quote = match state {
                     State::SingleQuoteString => '\'',
@@ -247,7 +275,6 @@ fn encode_js_strings(js: &str) -> String {
                     _ => unreachable!(),
                 };
 
-                // Encode string content
                 while i < len {
                     if chars[i] == '\\' && i + 1 < len {
                         // Keep existing escape sequences intact
@@ -255,7 +282,6 @@ fn encode_js_strings(js: &str) -> String {
                         out.push('\\');
                         out.push(next);
                         i += 2;
-                        // Consume full multi-char escapes
                         if next == 'u' {
                             if i < len && chars[i] == '{' {
                                 // \u{...} code point escape
@@ -268,7 +294,7 @@ fn encode_js_strings(js: &str) -> String {
                                     i += 1;
                                 }
                             } else {
-                                // \uXXXX — consume 4 hex digits
+                                // \uXXXX - consume 4 hex digits
                                 for _ in 0..4 {
                                     if i < len {
                                         out.push(chars[i]);
@@ -277,7 +303,7 @@ fn encode_js_strings(js: &str) -> String {
                                 }
                             }
                         } else if next == 'x' {
-                            // \xHH — consume 2 hex digits
+                            // \xHH - consume 2 hex digits
                             for _ in 0..2 {
                                 if i < len {
                                     out.push(chars[i]);
@@ -290,32 +316,16 @@ fn encode_js_strings(js: &str) -> String {
                         i += 1;
                         state = State::Normal;
                         break;
-                    } else if state == State::TemplateString
-                        && chars[i] == '$'
-                        && i + 1 < len
-                        && chars[i + 1] == '{'
-                    {
+                    } else if state == State::TemplateString && chars[i] == '$' && i + 1 < len && chars[i + 1] == '{' {
                         // Don't encode template literal expressions
                         out.push(chars[i]);
                         i += 1;
                     } else {
-                        // Encode the character
-                        let ch = chars[i];
-                        let code = ch as u32;
-                        if code <= 0xFF {
-                            out.push_str(&format!("\\x{:02x}", code));
-                        } else if code <= 0xFFFF {
-                            out.push_str(&format!("\\u{:04x}", code));
-                        } else {
-                            // Surrogate pair for characters above BMP
-                            let hi = ((code - 0x10000) >> 10) + 0xD800;
-                            let lo = ((code - 0x10000) & 0x3FF) + 0xDC00;
-                            out.push_str(&format!("\\u{:04x}\\u{:04x}", hi, lo));
-                        }
+                        escape_char(chars[i], &mut out, rng);
                         i += 1;
                     }
                 }
-            }
+            },
         }
     }
 
@@ -324,7 +334,7 @@ fn encode_js_strings(js: &str) -> String {
 
 /// Basic JS minification: remove comments, collapse whitespace.
 ///
-/// This is intentionally simple — we don't parse the full JS AST.
+/// This is intentionally simple - we don't parse the full JS AST.
 fn minify_js(js: &str) -> String {
     let chars: Vec<char> = js.chars().collect();
     let len = chars.len();
@@ -365,9 +375,7 @@ fn minify_js(js: &str) -> String {
                     i += 1;
                 } else if chars[i].is_ascii_whitespace() {
                     // Collapse whitespace but keep one space between identifiers/keywords
-                    if !prev_was_space
-                        && needs_space_separator(prev_char, chars.get(i + 1).copied())
-                    {
+                    if !prev_was_space && needs_space_separator(prev_char, chars.get(i + 1).copied()) {
                         out.push(' ');
                     }
                     prev_was_space = true;
@@ -378,13 +386,13 @@ fn minify_js(js: &str) -> String {
                     prev_char = Some(chars[i]);
                     i += 1;
                 }
-            }
+            },
             State::SingleLineComment => {
                 if chars[i] == '\n' {
                     state = State::Normal;
                 }
                 i += 1;
-            }
+            },
             State::MultiLineComment => {
                 if chars[i] == '*' && i + 1 < len && chars[i + 1] == '/' {
                     i += 2;
@@ -392,7 +400,7 @@ fn minify_js(js: &str) -> String {
                 } else {
                     i += 1;
                 }
-            }
+            },
             State::SingleQuoteString | State::DoubleQuoteString | State::TemplateString => {
                 let quote = match state {
                     State::SingleQuoteString => '\'',
@@ -406,7 +414,6 @@ fn minify_js(js: &str) -> String {
                     out.push(next);
                     prev_char = Some(next);
                     i += 2;
-                    // Consume full multi-char escapes
                     if next == 'u' {
                         if i < len && chars[i] == '{' {
                             while i < len {
@@ -444,7 +451,7 @@ fn minify_js(js: &str) -> String {
                     prev_char = Some(chars[i]);
                     i += 1;
                 }
-            }
+            },
         }
     }
 
@@ -455,9 +462,8 @@ fn minify_js(js: &str) -> String {
 fn needs_space_separator(prev: Option<char>, next: Option<char>) -> bool {
     match (prev, next) {
         (Some(p), Some(n)) => {
-            (p.is_ascii_alphanumeric() || p == '_' || p == '$')
-                && (n.is_ascii_alphanumeric() || n == '_' || n == '$')
-        }
+            (p.is_ascii_alphanumeric() || p == '_' || p == '$') && (n.is_ascii_alphanumeric() || n == '_' || n == '$')
+        },
         _ => false,
     }
 }
@@ -468,20 +474,13 @@ fn needs_space_separator(prev: Option<char>, next: Option<char>) -> bool {
 /// - `document.getElementById("foo")`
 /// - `document.querySelector(".bar")`
 /// - `element.classList.add("baz")`
-pub fn extract_js_references(
-    js: &str,
-    symbols: &mut SymbolMap,
-    rename_classes: bool,
-    rename_ids: bool,
-) {
-    // Extract from getElementById("...") calls
+pub fn extract_js_references(js: &str, symbols: &mut SymbolMap, rename_classes: bool, rename_ids: bool) {
     if rename_ids {
         extract_function_string_args(js, "getElementById", |name| {
             symbols.register_id(name);
         });
     }
 
-    // Extract from classList operations
     if rename_classes {
         for func in &[
             "classList.add",
@@ -495,7 +494,6 @@ pub fn extract_js_references(
         }
     }
 
-    // Extract from querySelector / querySelectorAll
     if rename_classes || rename_ids {
         for func in &["querySelector", "querySelectorAll"] {
             extract_function_string_args(js, func, |selector| {
@@ -512,11 +510,9 @@ fn extract_function_string_args(js: &str, func_name: &str, mut callback: impl Fn
         let abs_pos = search_from + pos + func_name.len();
         let rest = &js[abs_pos..];
 
-        // Skip whitespace and look for opening paren
         let rest = rest.trim_start();
         if let Some(rest) = rest.strip_prefix('(') {
             let rest = rest.trim_start();
-            // Look for string literal
             if let Some(value) = extract_string_literal(rest) {
                 callback(&value);
             }
@@ -550,12 +546,7 @@ fn extract_string_literal(s: &str) -> Option<String> {
 }
 
 /// Extract class/ID names from a CSS selector string (as used in querySelector).
-fn extract_selectors_from_query(
-    selector: &str,
-    symbols: &mut SymbolMap,
-    rename_classes: bool,
-    rename_ids: bool,
-) {
+fn extract_selectors_from_query(selector: &str, symbols: &mut SymbolMap, rename_classes: bool, rename_ids: bool) {
     let chars: Vec<char> = selector.chars().collect();
     let len = chars.len();
     let mut i = 0;
@@ -564,9 +555,7 @@ fn extract_selectors_from_query(
         if chars[i] == '.' && rename_classes {
             i += 1;
             let start = i;
-            while i < len
-                && (chars[i].is_ascii_alphanumeric() || chars[i] == '-' || chars[i] == '_')
-            {
+            while i < len && (chars[i].is_ascii_alphanumeric() || chars[i] == '-' || chars[i] == '_') {
                 i += 1;
             }
             if i > start {
@@ -576,9 +565,7 @@ fn extract_selectors_from_query(
         } else if chars[i] == '#' && rename_ids {
             i += 1;
             let start = i;
-            while i < len
-                && (chars[i].is_ascii_alphanumeric() || chars[i] == '-' || chars[i] == '_')
-            {
+            while i < len && (chars[i].is_ascii_alphanumeric() || chars[i] == '-' || chars[i] == '_') {
                 i += 1;
             }
             if i > start {
@@ -646,13 +633,13 @@ pub fn extract_concatenation_prefixes(js: &str) -> Vec<String> {
                 } else {
                     i += 1;
                 }
-            }
+            },
             State::SingleLineComment => {
                 if chars[i] == '\n' {
                     state = State::Normal;
                 }
                 i += 1;
-            }
+            },
             State::MultiLineComment => {
                 if chars[i] == '*' && i + 1 < len && chars[i + 1] == '/' {
                     i += 2;
@@ -660,7 +647,7 @@ pub fn extract_concatenation_prefixes(js: &str) -> Vec<String> {
                 } else {
                     i += 1;
                 }
-            }
+            },
             State::TemplateString => {
                 if chars[i] == '\\' && i + 1 < len {
                     i += 2;
@@ -670,10 +657,10 @@ pub fn extract_concatenation_prefixes(js: &str) -> Vec<String> {
                 } else {
                     i += 1;
                 }
-            }
+            },
             _ => {
                 i += 1;
-            }
+            },
         }
     }
 
@@ -718,14 +705,14 @@ pub fn replace_symbols_word_boundary(
     let mut result = text.to_owned();
     if rename_classes {
         let mut class_pairs: Vec<_> = symbols.classes().iter().collect();
-        class_pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        class_pairs.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
         for (original, obfuscated) in &class_pairs {
             result = replace_word(&result, original, obfuscated);
         }
     }
     if rename_ids {
         let mut id_pairs: Vec<_> = symbols.ids().iter().collect();
-        id_pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        id_pairs.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
         for (original, obfuscated) in &id_pairs {
             result = replace_word(&result, original, obfuscated);
         }
@@ -758,7 +745,7 @@ fn replace_word(text: &str, word: &str, replacement: &str) -> String {
             result.push_str(replacement);
             search_from = end_pos;
         } else {
-            // Not a word boundary match — advance past the first byte
+            // Not a word boundary match - advance past the first byte
             result.push_str(&text[search_from..abs_pos + 1]);
             search_from = abs_pos + 1;
         }
@@ -777,10 +764,13 @@ mod tests {
 
     #[test]
     fn encode_string_literals() {
+        use rand::SeedableRng;
+        let mut rng = StdRng::seed_from_u64(42);
         let input = r#"var x = "hello";"#;
-        let result = encode_js_strings(input);
+        let result = encode_js_strings(input, &mut rng);
         assert!(!result.contains("hello"));
-        assert!(result.contains("\\x"));
+        // At least one escape form must appear.
+        assert!(result.contains("\\x") || result.contains("\\u"));
     }
 
     #[test]

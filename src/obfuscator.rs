@@ -1,7 +1,8 @@
 use crate::analysis;
-use crate::config::ObfuscationConfig;
+use crate::config::{JsStringEncoding, ObfuscationConfig};
 use crate::error::Result;
 use crate::transform;
+use std::path::PathBuf;
 
 /// HTML obfuscator with builder pattern for configuration.
 ///
@@ -31,11 +32,48 @@ impl Obfuscator {
     ///
     /// Pass 1 collects all class/ID symbols, then Pass 2 applies all transformations.
     pub fn obfuscate(&self, html: &str) -> Result<String> {
-        // Pass 1: Analyze and collect symbols
-        let symbols = analysis::analyze(html, &self.config);
+        let config = self.effective_config();
 
-        // Pass 2: Transform with collected symbols
-        transform::transform(html, &symbols, &self.config)
+        // Pass 0 (optional): inline local stylesheets/scripts so their content
+        // is obfuscated like inline content. Local files only - never network.
+        let inlined;
+        let html: &str = if config.inline_local_resources {
+            inlined = crate::inline::inline_local(html, config.base_dir.as_deref());
+            &inlined
+        } else {
+            html
+        };
+
+        let symbols = analysis::analyze(html, &config);
+
+        transform::transform(html, &symbols, &config)
+    }
+
+    /// Resolve the config actually used for one invocation.
+    ///
+    /// In polymorphic mode (and only when no fixed `seed` is set) a random
+    /// subset of *safe* cosmetic transforms is toggled and their intensity
+    /// varied, so identical input produces structurally different output each
+    /// call. Correctness-critical transforms (renaming, encoding correctness)
+    /// are never disabled here - only varied where semantics are preserved.
+    fn effective_config(&self) -> ObfuscationConfig {
+        use rand::{rngs::StdRng, RngExt, SeedableRng};
+
+        if !self.config.polymorphic || self.config.seed.is_some() {
+            return self.config.clone();
+        }
+
+        let mut rng = StdRng::from_rng(&mut rand::rng());
+        let mut c = self.config.clone();
+        c.randomize_tag_case = rng.random_bool(0.7);
+        c.shuffle_attributes = rng.random_bool(0.85);
+        c.unicode_escape_selectors = rng.random_bool(0.7);
+        c.collapse_whitespace = rng.random_bool(0.9);
+        if c.inject_honeypots {
+            let base = c.honeypot_count.max(2);
+            c.honeypot_count = rng.random_range(2..=base + 6);
+        }
+        c
     }
 }
 
@@ -95,13 +133,80 @@ impl ObfuscatorBuilder {
         self
     }
 
+    /// Backwards-compatible toggle: `true` -> [`JsStringEncoding::Escapes`],
+    /// `false` -> [`JsStringEncoding::None`].
     pub fn encode_js_strings(mut self, v: bool) -> Self {
-        self.config.encode_js_strings = v;
+        self.config.js_string_encoding = if v {
+            JsStringEncoding::Escapes
+        } else {
+            JsStringEncoding::None
+        };
+        self
+    }
+
+    /// Select the JS string-literal encoding strategy directly.
+    pub fn js_string_encoding(mut self, e: JsStringEncoding) -> Self {
+        self.config.js_string_encoding = e;
         self
     }
 
     pub fn minify_js(mut self, v: bool) -> Self {
         self.config.minify_js = v;
+        self
+    }
+
+    pub fn inject_honeypots(mut self, v: bool) -> Self {
+        self.config.inject_honeypots = v;
+        self
+    }
+
+    pub fn honeypot_count(mut self, n: usize) -> Self {
+        self.config.honeypot_count = n;
+        self
+    }
+
+    pub fn structural_obfuscation(mut self, v: bool) -> Self {
+        self.config.structural_obfuscation = v;
+        self
+    }
+
+    pub fn js_ast(mut self, v: bool) -> Self {
+        self.config.js_ast = v;
+        self
+    }
+
+    pub fn mangle_identifiers(mut self, v: bool) -> Self {
+        self.config.mangle_identifiers = v;
+        self
+    }
+
+    pub fn control_flow_flattening(mut self, v: bool) -> Self {
+        self.config.control_flow_flattening = v;
+        self
+    }
+
+    pub fn dead_code_injection(mut self, v: bool) -> Self {
+        self.config.dead_code_injection = v;
+        self
+    }
+
+    pub fn dead_code_threshold(mut self, t: f32) -> Self {
+        self.config.dead_code_threshold = t.clamp(0.0, 1.0);
+        self
+    }
+
+    pub fn inline_local_resources(mut self, v: bool) -> Self {
+        self.config.inline_local_resources = v;
+        self
+    }
+
+    pub fn base_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.config.base_dir = Some(dir.into());
+        self
+    }
+
+    pub fn polymorphic(mut self, v: bool) -> Self {
+        self.config.polymorphic = v;
         self
     }
 
@@ -111,8 +216,6 @@ impl ObfuscatorBuilder {
     }
 
     pub fn build(self) -> Obfuscator {
-        Obfuscator {
-            config: self.config,
-        }
+        Obfuscator { config: self.config }
     }
 }

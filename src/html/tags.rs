@@ -52,7 +52,6 @@ mod tests {
         ];
         let original: Vec<_> = attrs.clone();
         shuffle_attributes(&mut attrs, &mut rng);
-        // Same elements, potentially different order
         assert_eq!(attrs.len(), original.len());
         for item in &original {
             assert!(attrs.contains(item));

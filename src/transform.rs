@@ -1,10 +1,13 @@
-use crate::config::ObfuscationConfig;
+use crate::config::{JsStringEncoding, ObfuscationConfig};
 use crate::css;
 use crate::error::Result;
+use crate::honeypot;
 use crate::html::entities;
 use crate::html::tags;
 use crate::html::whitespace;
 use crate::js;
+use crate::js_ast;
+use crate::structural;
 use crate::symbol_map::SymbolMap;
 use lol_html::html_content::ContentType;
 use lol_html::{doc_comments, element, text, HtmlRewriter, Settings};
@@ -54,14 +57,27 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     let rename_ids = config.rename_ids;
     let minify_css = config.minify_css;
     let unicode_escape = config.unicode_escape_selectors;
-    let encode_js = config.encode_js_strings;
+    // `Array` encoding needs the AST engine; without it, degrade to escapes.
+    let js_encoding = match config.js_string_encoding {
+        JsStringEncoding::Array if !config.js_ast => JsStringEncoding::Escapes,
+        other => other,
+    };
     let minify_js_opt = config.minify_js;
+    let inject_honeypots = config.inject_honeypots;
+    let honeypot_count = config.honeypot_count;
+    let structural_obf = config.structural_obfuscation;
+    let wants_ast = config.wants_ast();
 
     // Track preserved-whitespace context (Rc for sharing with end_tag_handlers)
     let preserved_depth = Rc::new(RefCell::new(0u32));
 
+    // Stack of open element tag names (innermost last), used to find the direct
+    // parent of a text node for structural obfuscation. Only elements with an
+    // end tag are pushed, so void elements never unbalance it.
+    let tag_stack: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+
     // Track whether we're inside a <style> or <script> RAWTEXT element.
-    // Text inside these must NOT be entity-encoded — browsers parse them as raw text.
+    // Text inside these must NOT be entity-encoded - browsers parse them as raw text.
     let in_raw_text = Rc::new(RefCell::new(false));
 
     // Track whether the current <script> is actual JavaScript (not JSON, template, etc.)
@@ -74,7 +90,6 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     let mut element_handlers: Vec<_> = Vec::new();
     let mut document_handlers: Vec<_> = Vec::new();
 
-    // Comment removal (document-level)
     if remove_comments {
         document_handlers.push(doc_comments!(|comment| {
             comment.remove();
@@ -82,7 +97,6 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         }));
     }
 
-    // Track entering/leaving style elements
     element_handlers.push(element!("style", |el| {
         *style_buf.borrow_mut() = String::new();
         *in_raw_text.borrow_mut() = true;
@@ -97,17 +111,15 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         Ok(())
     }));
 
-    // Track entering/leaving script elements
     element_handlers.push(element!("script", |el| {
         *script_buf.borrow_mut() = String::new();
         *in_raw_text.borrow_mut() = true;
 
-        // Check if this is actual JavaScript (no type, or type containing "javascript")
         let is_js = match el.get_attribute("type") {
             Some(t) => {
                 let t = t.to_ascii_lowercase();
                 t.is_empty() || t.contains("javascript") || t.contains("ecmascript")
-            }
+            },
             None => true,
         };
         *script_is_js.borrow_mut() = is_js;
@@ -123,11 +135,23 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         Ok(())
     }));
 
-    // Element handler for attributes, tag case, class/ID renaming
     element_handlers.push(element!("*", |el| {
         let tag_lower = el.tag_name().to_ascii_lowercase();
 
-        // Track preserved whitespace elements
+        // Maintain the open-element stack (only for elements that have an end
+        // tag, keeping it balanced regardless of void/self-closing elements).
+        if structural_obf {
+            if let Some(handlers) = el.end_tag_handlers() {
+                tag_stack.borrow_mut().push(tag_lower.clone());
+                let stack = Rc::clone(&tag_stack);
+                let handler: lol_html::EndTagHandler<'static> = Box::new(move |_end| {
+                    stack.borrow_mut().pop();
+                    Ok(())
+                });
+                handlers.push(handler);
+            }
+        }
+
         if whitespace::is_preserved_tag(&tag_lower) {
             *preserved_depth.borrow_mut() += 1;
             if let Some(handlers) = el.end_tag_handlers() {
@@ -143,7 +167,6 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
             }
         }
 
-        // Rename class attribute (applies to all elements including style/script)
         if rename_classes {
             if let Some(class_attr) = el.get_attribute("class") {
                 let new_classes: Vec<&str> = class_attr
@@ -154,7 +177,6 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
             }
         }
 
-        // Rename id attribute (applies to all elements including style/script)
         if rename_ids {
             if let Some(id_attr) = el.get_attribute("id") {
                 if let Some(new_id) = symbols.get_id(&id_attr) {
@@ -162,7 +184,6 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
                 }
             }
 
-            // Rename ID-referencing attributes
             for &attr_name in ID_REF_ATTRS {
                 if let Some(value) = el.get_attribute(attr_name) {
                     let new_value: Vec<&str> = value
@@ -173,7 +194,6 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
                 }
             }
 
-            // Handle href="#id"
             if let Some(href) = el.get_attribute("href") {
                 if let Some(id) = href.strip_prefix('#') {
                     if let Some(new_id) = symbols.get_id(id) {
@@ -191,11 +211,7 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         // Encode attribute values (skip functional attrs like IDs, URLs)
         if encode_attrs {
             let mut rng = rng.borrow_mut();
-            let attrs: Vec<(String, String)> = el
-                .attributes()
-                .iter()
-                .map(|a| (a.name(), a.value()))
-                .collect();
+            let attrs: Vec<(String, String)> = el.attributes().iter().map(|a| (a.name(), a.value())).collect();
             for (name, value) in &attrs {
                 if should_skip_attr_encoding(name) {
                     continue;
@@ -205,14 +221,9 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
             }
         }
 
-        // Shuffle attributes
         if shuffle_attrs {
             let mut rng = rng.borrow_mut();
-            let mut attrs: Vec<(String, String)> = el
-                .attributes()
-                .iter()
-                .map(|a| (a.name(), a.value()))
-                .collect();
+            let mut attrs: Vec<(String, String)> = el.attributes().iter().map(|a| (a.name(), a.value())).collect();
             tags::shuffle_attributes(&mut attrs, &mut rng);
 
             let attr_names: Vec<String> = el.attributes().iter().map(|a| a.name()).collect();
@@ -224,7 +235,6 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
             }
         }
 
-        // Randomize tag case
         if randomize_case {
             let mut rng = rng.borrow_mut();
             let new_tag = tags::randomize_tag_case(&tag_lower, &mut rng);
@@ -234,9 +244,9 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         Ok(())
     }));
 
-    // General text handler — applies to ALL text nodes, but skips RAWTEXT context
+    // General text handler - applies to ALL text nodes, but skips RAWTEXT context
     element_handlers.push(text!("*", |text| {
-        // Skip text inside <style> and <script> — handled by dedicated handlers
+        // Skip text inside <style> and <script> - handled by dedicated handlers
         if *in_raw_text.borrow() {
             return Ok(());
         }
@@ -254,6 +264,20 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
             processed = whitespace::collapse_whitespace(&processed);
         }
 
+        // Structural obfuscation: relocate non-blank text inside safe flow
+        // elements into an encoded data-attribute, restored client-side.
+        if structural_obf && !is_preserved && !processed.trim().is_empty() {
+            let parent_is_safe = tag_stack
+                .borrow()
+                .last()
+                .map(|t| structural::is_safe_tag(t))
+                .unwrap_or(false);
+            if parent_is_safe {
+                text.replace(&structural::encode_text_node(&processed), ContentType::Html);
+                return Ok(());
+            }
+        }
+
         if encode_text {
             let mut rng = rng.borrow_mut();
             processed = entities::encode_entities(&processed, &mut rng);
@@ -263,7 +287,21 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         Ok(())
     }));
 
-    // Style content handler — accumulate chunks, process on last
+    // Inject honeypots and the structural-restore script at the end of <body>.
+    if inject_honeypots || structural_obf {
+        element_handlers.push(element!("body", |el| {
+            if inject_honeypots {
+                let mut rng = rng.borrow_mut();
+                let decoys = honeypot::generate(honeypot_count, &mut rng);
+                el.append(&decoys, ContentType::Html);
+            }
+            if structural_obf {
+                el.append(structural::restore_script(), ContentType::Html);
+            }
+            Ok(())
+        }));
+    }
+
     element_handlers.push(text!("style", |text| {
         style_buf.borrow_mut().push_str(text.as_str());
 
@@ -288,7 +326,6 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         Ok(())
     }));
 
-    // Script content handler — accumulate chunks, process on last
     element_handlers.push(text!("script", |text| {
         script_buf.borrow_mut().push_str(text.as_str());
 
@@ -296,24 +333,30 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
             let content = script_buf.borrow().clone();
             if !content.is_empty() {
                 if *script_is_js.borrow() {
-                    // JavaScript: full transformation
-                    let transformed = js::transform_js(
-                        &content,
-                        symbols,
-                        encode_js,
-                        minify_js_opt,
-                        rename_classes,
-                        rename_ids,
-                    );
+                    // JavaScript: AST engine when requested, else the token path.
+                    // The AST path falls back to the token path on parse failure.
+                    let mut rng_ref = rng.borrow_mut();
+                    let token_path = |rng: &mut StdRng| {
+                        js::transform_js(
+                            &content,
+                            symbols,
+                            js_encoding,
+                            minify_js_opt,
+                            rename_classes,
+                            rename_ids,
+                            rng,
+                        )
+                    };
+                    let transformed = if wants_ast {
+                        js_ast::transform(&content, symbols, config, &mut rng_ref)
+                            .unwrap_or_else(|| token_path(&mut rng_ref))
+                    } else {
+                        token_path(&mut rng_ref)
+                    };
                     text.replace(&transformed, ContentType::Html);
                 } else if rename_classes || rename_ids {
                     // Non-JS (JSON, etc.): only rename class/ID references
-                    let transformed = js::replace_symbols_word_boundary(
-                        &content,
-                        symbols,
-                        rename_classes,
-                        rename_ids,
-                    );
+                    let transformed = js::replace_symbols_word_boundary(&content, symbols, rename_classes, rename_ids);
                     text.replace(&transformed, ContentType::Html);
                 }
             }
@@ -325,16 +368,16 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     }));
 
     {
-        let mut rewriter = HtmlRewriter::new(
-            Settings {
-                element_content_handlers: element_handlers,
-                document_content_handlers: document_handlers,
-                ..Settings::default()
-            },
-            |chunk: &[u8]| {
-                output.borrow_mut().extend_from_slice(chunk);
-            },
-        );
+        let mut settings = Settings::new();
+        for handler in element_handlers {
+            settings = settings.append_element_content_handler(handler);
+        }
+        for handler in document_handlers {
+            settings = settings.append_document_content_handler(handler);
+        }
+        let mut rewriter = HtmlRewriter::new(settings, |chunk: &[u8]| {
+            output.borrow_mut().extend_from_slice(chunk);
+        });
 
         rewriter.write(html.as_bytes())?;
         rewriter.end()?;
@@ -427,7 +470,7 @@ mod tests {
         let html = r#"<script>var x = 1 + 2;</script>"#;
         let config = ObfuscationConfig {
             seed: Some(42),
-            encode_js_strings: false,
+            js_string_encoding: JsStringEncoding::None,
             minify_js: false,
             randomize_tag_case: false,
             shuffle_attributes: false,

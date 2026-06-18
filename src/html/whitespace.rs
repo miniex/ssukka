@@ -9,7 +9,7 @@ pub fn is_preserved_tag(tag: &str) -> bool {
 /// Collapse runs of whitespace in text content to a single space.
 ///
 /// Newlines, tabs, and multiple spaces are all replaced.
-/// Leading/trailing whitespace is collapsed (not stripped — the browser
+/// Leading/trailing whitespace is collapsed (not stripped - the browser
 /// will ignore it but we keep one space for safety between inline elements).
 pub fn collapse_whitespace(text: &str) -> String {
     let mut out = String::with_capacity(text.len());

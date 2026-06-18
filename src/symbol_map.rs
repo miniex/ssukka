@@ -53,12 +53,12 @@ impl SymbolMap {
         self.ids.get(name).map(|s| s.as_str())
     }
 
-    /// Returns all class mappings (original → obfuscated).
+    /// Returns all class mappings (original -> obfuscated).
     pub fn classes(&self) -> &HashMap<String, String> {
         &self.classes
     }
 
-    /// Returns all ID mappings (original → obfuscated).
+    /// Returns all ID mappings (original -> obfuscated).
     pub fn ids(&self) -> &HashMap<String, String> {
         &self.ids
     }
@@ -87,13 +87,10 @@ impl SymbolMap {
             for prefix in &prefixes {
                 if let Some(suffix) = original.strip_prefix(prefix.as_str()) {
                     if !suffix.is_empty() && !suffix.contains(' ') {
-                        // Register suffix as a class (if not already)
                         self.register_class(suffix);
 
-                        // Update compound mapping
                         if let Some(suffix_obf) = self.classes.get(suffix).cloned() {
-                            self.classes
-                                .insert(original.clone(), format!("{prefix}{suffix_obf}"));
+                            self.classes.insert(original.clone(), format!("{prefix}{suffix_obf}"));
                         }
                         break; // longest match wins
                     }
@@ -112,7 +109,6 @@ impl SymbolMap {
         let len = self.rng.random_range(6..=10);
         let mut name = String::with_capacity(len);
 
-        // Ensure uniqueness with counter prefix
         let idx = self.rng.random_range(0..FIRST.len());
         name.push(FIRST[idx] as char);
 

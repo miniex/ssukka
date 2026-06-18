@@ -8,11 +8,44 @@ edition = "2021"
 publish = true
 repository = "https://github.com/miniex/ssukka"
 readme = "README.md"
-rust-version = "1.93.0"
+rust-version = "1.94"
 keywords = ["html", "obfuscation", "css", "javascript"]
 categories = ["web-programming", "encoding"]
 
+[features]
+default = []
+# Browser/edge WASM module.
+wasm = ["dep:wasm-bindgen", "dep:getrandom", "dep:getrandom_03"]
+
 [dependencies]
-lightningcss = "1.0.0-alpha.70"
-lol_html = "2.7.1"
-rand = "0.10.0"
+getrandom = { version = "0.4.3", optional = true, features = [
+  "wasm_js",
+] } # wasm backend for rand's getrandom
+getrandom_03 = { package = "getrandom", version = "0.3.4", optional = true, features = [
+  "wasm_js",
+] } # wasm backend for ahash's getrandom
+lightningcss = "1.0.0-alpha.71"
+lol_html = "3.0.0"
+oxc = { version = "0.136.0", features = [
+  "semantic",
+  "mangler",
+  "codegen",
+  "ast_visit",
+  "cfg",
+] }
+rand = "0.10.1"
+wasm-bindgen = { version = "0.2.125", optional = true } # browser/edge bindings
+
+[dev-dependencies]
+criterion = "0.8.2"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+uninlined_format_args = "warn"
+
+[[bench]]
+name = "obfuscation"
+harness = false

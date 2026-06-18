@@ -22,7 +22,7 @@ pub fn encode_entities(text: &str, rng: &mut StdRng) -> String {
                 _ => encode_hex(ch, &mut out),
             }
         } else {
-            // Non-ASCII or special chars — always encode
+            // Non-ASCII or special chars - always encode
             match rng.random_range(0u8..2) {
                 0 => encode_decimal(ch, &mut out),
                 _ => encode_hex(ch, &mut out),
@@ -86,9 +86,6 @@ mod tests {
         let mut rng1 = StdRng::seed_from_u64(99);
         let mut rng2 = StdRng::seed_from_u64(99);
         let input = "test string";
-        assert_eq!(
-            encode_entities(input, &mut rng1),
-            encode_entities(input, &mut rng2),
-        );
+        assert_eq!(encode_entities(input, &mut rng1), encode_entities(input, &mut rng2),);
     }
 }
