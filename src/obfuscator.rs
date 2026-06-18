@@ -49,13 +49,9 @@ impl Obfuscator {
         transform::transform(html, &symbols, &config)
     }
 
-    /// Resolve the config actually used for one invocation.
-    ///
-    /// In polymorphic mode (and only when no fixed `seed` is set) a random
-    /// subset of *safe* cosmetic transforms is toggled and their intensity
-    /// varied, so identical input produces structurally different output each
-    /// call. Correctness-critical transforms (renaming, encoding correctness)
-    /// are never disabled here - only varied where semantics are preserved.
+    /// Resolve the config used for one invocation. In polymorphic mode (and
+    /// only without a fixed `seed`), a random subset of *safe* cosmetic
+    /// transforms is toggled/varied; correctness-critical ones are never touched.
     fn effective_config(&self) -> ObfuscationConfig {
         use rand::{rngs::StdRng, RngExt, SeedableRng};
 

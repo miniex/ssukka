@@ -166,10 +166,10 @@ Exposes `obfuscate(html)`, `obfuscate_seeded(html, seed)`, and `obfuscate_max(ht
 
 ## Development
 
-Requires Rust >= 1.94 (pinned in `rust-toolchain.toml`). The repo ships POSIX `sh` tooling:
+Requires Rust >= 1.94 (pinned in `rust-toolchain.toml`). A `Dockerfile` and a Nix flake (`nix develop` / `nix build`) are also provided. The repo ships POSIX `sh` tooling:
 
 ```bash
-./tools/format.sh   # cargo fmt + shfmt + taplo fmt
+./tools/format.sh   # cargo fmt + shfmt + taplo fmt + prettier (md)
 ./tools/lint.sh     # cargo clippy -D warnings + shellcheck + shfmt -d + taplo
 ```
 

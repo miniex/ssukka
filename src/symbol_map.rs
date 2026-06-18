@@ -63,14 +63,9 @@ impl SymbolMap {
         &self.ids
     }
 
-    /// Resolve compound class names using JS-detected concatenation prefixes.
-    ///
-    /// For each JS prefix (e.g., `tier-`, `tier-border-`), finds CSS classes
-    /// starting with that prefix, registers the suffix as a class, and maps
-    /// the compound to prefix + obfuscated(suffix).
-    ///
-    /// Uses longest-prefix matching so `tier-border-critical` matches
-    /// `tier-border-` (not `tier-`).
+    /// Resolve compound class names from JS concatenation prefixes: register
+    /// each suffix as its own class and map the compound to
+    /// `prefix + obfuscated(suffix)`, using longest-prefix matching.
     pub fn resolve_compounds(&mut self, js_prefixes: &[String]) {
         if js_prefixes.is_empty() {
             return;

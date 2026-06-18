@@ -15,14 +15,15 @@ Opt-in advanced obfuscation layers, an AST-based JS engine, a WASM target, and P
 - **Local resource inlining** (`--inline-local-resources`, `--base-dir`): inlines local `<link>`/`<script src>`, then obfuscates them. Local files only, never network. (`src/inline.rs`)
 - **WASM** (`wasm` feature, `src/wasm.rs`): `obfuscate`, `obfuscate_seeded`, `obfuscate_max` for browser/edge.
 - **Benchmark** (`benches/obfuscation.rs`, criterion): `cargo bench`.
-- **POSIX dev tooling**: `tools/format.sh`, `tools/lint.sh`, plus `rustfmt.toml`, `rust-toolchain.toml`, `.editorconfig`, `.shellcheckrc`, `.cargo/config.toml`, and `[lints]` in `Cargo.toml`.
+- **POSIX dev tooling**: `tools/format.sh` (also runs `prettier` on Markdown), `tools/lint.sh`, plus `rustfmt.toml`, `rust-toolchain.toml`, `.editorconfig`, `.shellcheckrc`, `.prettierrc.json`, `.cargo/config.toml`, and `[lints]` in `Cargo.toml`.
 - New `ObfuscationConfig` fields / builder methods and the `JsStringEncoding` enum.
 
 ### Changed
 
 - JS string encoding now randomizes over `\xHH` / `\uXXXX` / `\u{..}`.
-- MSRV is **1.94** (oxc), pinned in `Cargo.toml` and `rust-toolchain.toml`.
+- MSRV is **1.94** (oxc), pinned across `Cargo.toml`, `rust-toolchain.toml`, the `Dockerfile`, and the Nix flake.
 - Dependencies bumped to latest: `lol_html` 3.0 (Settings builder API), `lightningcss` 1.0.0-alpha.71, `rand` 0.10.1.
+- Nix devShell adds the wasm32 target and shfmt / shellcheck / taplo / nodejs.
 - `tools/deploy.sh` converted to POSIX `sh`.
 - README expanded (features, threat model, offline, WASM, development).
 

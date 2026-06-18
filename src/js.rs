@@ -468,12 +468,8 @@ fn needs_space_separator(prev: Option<char>, next: Option<char>) -> bool {
     }
 }
 
-/// Scan JavaScript source for class/ID references used in DOM APIs.
-///
-/// Looks for patterns like:
-/// - `document.getElementById("foo")`
-/// - `document.querySelector(".bar")`
-/// - `element.classList.add("baz")`
+/// Scan JS for class/ID references in DOM APIs (`getElementById`,
+/// `querySelector`/`All`, `classList.*`).
 pub fn extract_js_references(js: &str, symbols: &mut SymbolMap, rename_classes: bool, rename_ids: bool) {
     if rename_ids {
         extract_function_string_args(js, "getElementById", |name| {

@@ -15,7 +15,9 @@
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
-        rustToolchain = pkgs.rust-bin.stable."1.93.0".default;
+        rustToolchain = pkgs.rust-bin.stable."1.94.0".default.override {
+          targets = [ "wasm32-unknown-unknown" ];
+        };
       in
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
@@ -29,7 +31,10 @@
           buildInputs = [
             rustToolchain
             pkgs.cargo-watch
-            pkgs.clippy
+            pkgs.shfmt
+            pkgs.shellcheck
+            pkgs.taplo
+            pkgs.nodejs
           ];
         };
       }
