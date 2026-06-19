@@ -2,6 +2,12 @@
 
 Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- CSS class/ID renaming and selector unicode-escaping now operate **only on selector preludes**, never on declaration values, strings, or comments. Previously the renamer did a global substring replace, so a class/ID whose name collided with a hex color (e.g. an ID `abc` and `color:#abc`) or appeared inside a value string (`content:".x"`) could corrupt that value. Hex colors (`#fff`, `#abcdef`), quoted values, and `url(...)` tokens are now left intact. (`src/css.rs`)
+
 ## [0.2.0] - 2026-06-20
 
 Opt-in advanced obfuscation layers, an AST-based JS engine, a WASM target, and POSIX dev tooling. Advanced transforms are off by default; cosmetic behavior is unchanged.
