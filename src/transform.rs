@@ -71,9 +71,9 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     // Track preserved-whitespace context (Rc for sharing with end_tag_handlers)
     let preserved_depth = Rc::new(RefCell::new(0u32));
 
-    // Stack of open element tag names (innermost last), used to find the direct
-    // parent of a text node for structural obfuscation. Only elements with an
-    // end tag are pushed, so void elements never unbalance it.
+    // Open-element stack (innermost last): the parent tag of a text node, for
+    // structural obfuscation. Only elements with an end tag are pushed, so void
+    // elements never unbalance it.
     let tag_stack: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
 
     // Track whether we're inside a <style> or <script> RAWTEXT element.

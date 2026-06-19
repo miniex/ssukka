@@ -17,8 +17,8 @@ pub fn analyze(html: &str, config: &ObfuscationConfig) -> SymbolMap {
     let rename_classes = config.rename_classes;
     let rename_ids = config.rename_ids;
 
-    // Interior mutability: lol_html handlers are FnMut, so collect into RefCell
-    // buffers and process them after the rewrite finishes.
+    // lol_html handlers are FnMut, so collect into RefCell buffers and process
+    // them after the rewrite finishes.
     let class_names: RefCell<Vec<String>> = RefCell::new(Vec::new());
     let id_names: RefCell<Vec<String>> = RefCell::new(Vec::new());
     let style_contents: RefCell<Vec<String>> = RefCell::new(Vec::new());

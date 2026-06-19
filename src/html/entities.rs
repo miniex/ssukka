@@ -75,8 +75,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let input = "Hello <World> & 'friends'";
         let encoded = encode_entities(input, &mut rng);
-        // Should not contain raw < or > (they get entity-encoded)
-        // The encoded form should be valid HTML entities
+        // < and > must be entity-encoded, never left raw
         assert!(!encoded.contains('<'));
         assert!(!encoded.contains('>'));
     }

@@ -42,9 +42,8 @@ const PATHS: &[&str] = &[
 
 /// Build a block of invisible decoy nodes.
 ///
-/// Returns an HTML fragment (already escaped) suitable for appending to the
-/// document body. The fragment is inserted verbatim into the output and is not
-/// re-processed by the rewriter, so its decoy names stay literal on purpose.
+/// Returns an HTML fragment to append to `<body>`. It is inserted verbatim
+/// (not re-processed by the rewriter), so decoy names stay literal.
 pub fn generate(count: usize, rng: &mut StdRng) -> String {
     let mut out = String::with_capacity(count * 80);
     for _ in 0..count {

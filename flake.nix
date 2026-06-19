@@ -1,5 +1,5 @@
 {
-  description = "ssukka — HTML obfuscation tool";
+  description = "ssukka - HTML obfuscation tool";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
