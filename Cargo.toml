@@ -1,6 +1,6 @@
 [package]
 name = "ssukka"
-version = "0.1.0"
+version = "0.2.0"
 description = "HTML obfuscation library and CLI for Rust. Renders identically in browsers but is hard for humans to read."
 license = "MIT"
 authors = ["Han Damin <miniex@daminstudio.net>"]

@@ -2,7 +2,7 @@
 
 Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-06-20
 
 Opt-in advanced obfuscation layers, an AST-based JS engine, a WASM target, and POSIX dev tooling. Advanced transforms are off by default; cosmetic behavior is unchanged.
 
