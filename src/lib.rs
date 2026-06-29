@@ -19,9 +19,7 @@ pub use config::ObfuscationConfig;
 pub use error::{Result, SsukkaError};
 pub use obfuscator::{Obfuscator, ObfuscatorBuilder};
 
-/// Obfuscate HTML with default settings.
-///
-/// This is a convenience function equivalent to:
+/// Obfuscate HTML with default settings. Equivalent to:
 /// ```
 /// # let html = "<div>hello</div>";
 /// ssukka::Obfuscator::default().obfuscate(html);

@@ -1,9 +1,8 @@
 //! Structural obfuscation with client-side restoration (WebCloak-style):
-//! visible text in safe flow elements is removed from the static markup and
-//! stashed base64-encoded in a `data-ssk` attribute, then restored at runtime
-//! by an injected script. Static scrapers see only opaque base64; a browser
-//! renders identically. Strictly opt-in: it breaks no-JS, SEO, and (until
-//! restoration runs) accessibility.
+//! visible text in safe flow elements is moved out of the static markup into a
+//! base64 `data-ssk` attribute, then restored at runtime by an injected script.
+//! Static scrapers see only opaque base64; a browser renders identically.
+//! Opt-in: breaks no-JS, SEO, and (until restore runs) accessibility.
 
 /// Tags whose *direct* text children may be wrapped in a `<span>` without
 /// producing invalid markup. Deliberately conservative: metadata containers
@@ -74,7 +73,7 @@ document.querySelectorAll('[data-ssk]').forEach(function(e){\
 try{e.textContent=d(e.getAttribute('data-ssk'));e.removeAttribute('data-ssk');}catch(_){}});})();</script>"
 }
 
-/// Standard base64 (RFC 4648) encoder - std-only, no extra dependency.
+/// Standard base64 (RFC 4648) encoder, std-only with no extra dependency.
 fn base64_encode(input: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);

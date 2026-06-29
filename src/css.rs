@@ -146,9 +146,9 @@ fn escape_name(name: &str) -> String {
     out
 }
 
-/// Run `f` over each selector-prelude region of `css` - the run of text that
-/// terminates with `{` at brace/paren depth 0 - copying declaration blocks,
-/// strings, comments, and at-rule statements through verbatim.
+/// Run `f` over each selector-prelude region of `css` (the run of text that
+/// ends with `{` at brace/paren depth 0), copying declaration blocks, strings,
+/// comments, and at-rule statements through verbatim.
 fn map_selector_preludes(css: &str, mut f: impl FnMut(&str) -> String) -> String {
     let chars: Vec<char> = css.chars().collect();
     let n = chars.len();

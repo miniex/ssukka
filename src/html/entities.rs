@@ -22,7 +22,7 @@ pub fn encode_entities(text: &str, rng: &mut StdRng) -> String {
                 _ => encode_hex(ch, &mut out),
             }
         } else {
-            // Non-ASCII or special chars - always encode
+            // Non-ASCII or special chars: always encode
             match rng.random_range(0u8..2) {
                 0 => encode_decimal(ch, &mut out),
                 _ => encode_hex(ch, &mut out),

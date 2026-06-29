@@ -1,5 +1,5 @@
 //! Optional inlining of local `<link rel=stylesheet>` and `<script src>` as a
-//! preprocessing pass, so the inlined CSS/JS is then obfuscated normally. Only
+//! preprocessing step, so the inlined CSS/JS is then obfuscated normally. Only
 //! files resolving under `base_dir` are inlined; URLs, protocol-relative refs,
 //! `data:` URIs, and paths escaping `base_dir` are left untouched. Never hits
 //! the network.
@@ -98,7 +98,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let html = r#"<link rel="stylesheet" href="../../../etc/hostname">"#;
         let out = inline_local(html, Some(&dir));
-        // Untouched - the traversal target is outside base_dir.
+        // Untouched: the traversal target is outside base_dir.
         assert!(out.contains(r#"href="../../../etc/hostname""#));
         assert!(!out.contains("<style>"));
     }

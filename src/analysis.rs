@@ -5,20 +5,17 @@ use crate::symbol_map::SymbolMap;
 use lol_html::{element, text, HtmlRewriter, Settings};
 use std::cell::RefCell;
 
-/// Pass 1: Scan the HTML document and collect all class/ID symbols.
+/// Scan the document and collect every class/ID symbol.
 ///
-/// Streams through the HTML with lol_html, collecting:
-/// - class attributes from elements
-/// - id attributes from elements
-/// - CSS selectors from `<style>` blocks
-/// - JS DOM API references from `<script>` blocks
+/// Streams the HTML with lol_html, gathering class and id attributes, CSS
+/// selectors from `<style>`, and DOM API references from `<script>`.
 pub fn analyze(html: &str, config: &ObfuscationConfig) -> SymbolMap {
     let mut symbols = SymbolMap::new(config.seed);
     let rename_classes = config.rename_classes;
     let rename_ids = config.rename_ids;
 
-    // lol_html handlers are FnMut, so collect into RefCell buffers and process
-    // them after the rewrite finishes.
+    // lol_html handlers are FnMut, so buffer into RefCells and process after
+    // the rewrite finishes.
     let class_names: RefCell<Vec<String>> = RefCell::new(Vec::new());
     let id_names: RefCell<Vec<String>> = RefCell::new(Vec::new());
     let style_contents: RefCell<Vec<String>> = RefCell::new(Vec::new());
@@ -44,7 +41,7 @@ pub fn analyze(html: &str, config: &ObfuscationConfig) -> SymbolMap {
                     if let Some(id_attr) = el.get_attribute("id") {
                         id_names.borrow_mut().push(id_attr.to_owned());
                     }
-                    // `for` attribute (label->input association)
+                    // `for` attribute (label-to-input association)
                     if let Some(for_attr) = el.get_attribute("for") {
                         id_names.borrow_mut().push(for_attr.to_owned());
                     }
@@ -56,7 +53,7 @@ pub fn analyze(html: &str, config: &ObfuscationConfig) -> SymbolMap {
                 *style_buf.borrow_mut() = String::new();
                 Ok(())
             }))
-            // Only treat as JS (not JSON/template)
+            // Treat as JS only, not JSON/template
             .append_element_content_handler(element!("script", |el| {
                 let is_js = match el.get_attribute("type") {
                     Some(t) => {
@@ -115,12 +112,12 @@ pub fn analyze(html: &str, config: &ObfuscationConfig) -> SymbolMap {
         js::extract_js_references(js_content, &mut symbols, rename_classes, rename_ids);
     }
 
-    // Also collect ID references from href="#id" attributes
+    // Collect ID references from href="#id" attributes too.
     if rename_ids {
         collect_href_id_refs(html, &mut symbols);
     }
 
-    // Detect JS concatenation prefixes and resolve compound class names
+    // Detect JS concatenation prefixes and resolve compound class names.
     if rename_classes {
         let mut all_prefixes = Vec::new();
         for js_content in script_contents.borrow().iter() {

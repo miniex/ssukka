@@ -71,14 +71,13 @@ impl SymbolMap {
             return;
         }
 
-        // Sort prefixes by length descending for longest-match-first
+        // Longest prefix first.
         let mut prefixes = js_prefixes.to_vec();
         prefixes.sort_by_key(|b| std::cmp::Reverse(b.len()));
 
         let class_names: Vec<String> = self.classes.keys().cloned().collect();
 
         for original in &class_names {
-            // Find longest matching prefix
             for prefix in &prefixes {
                 if let Some(suffix) = original.strip_prefix(prefix.as_str()) {
                     if !suffix.is_empty() && !suffix.contains(' ') {

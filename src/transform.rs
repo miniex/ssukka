@@ -31,7 +31,7 @@ const ID_REF_ATTRS: &[&str] = &[
     "popovertarget",
 ];
 
-/// Attributes that should not be entity-encoded (URLs, IDs, etc.)
+/// Attributes that must not be entity-encoded (URLs, IDs, etc.).
 fn should_skip_attr_encoding(name: &str) -> bool {
     matches!(
         name,
@@ -39,7 +39,7 @@ fn should_skip_attr_encoding(name: &str) -> bool {
     ) || ID_REF_ATTRS.contains(&name)
 }
 
-/// Pass 2: Apply all obfuscation transformations.
+/// Apply every obfuscation transform.
 pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) -> Result<String> {
     let output = RefCell::new(Vec::with_capacity(html.len()));
     let rng = RefCell::new(match config.seed {
@@ -76,11 +76,11 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     // elements never unbalance it.
     let tag_stack: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
 
-    // Track whether we're inside a <style> or <script> RAWTEXT element.
-    // Text inside these must NOT be entity-encoded - browsers parse them as raw text.
+    // Inside a <style> or <script> RAWTEXT element. Text there must not be
+    // entity-encoded; browsers parse it as raw text.
     let in_raw_text = Rc::new(RefCell::new(false));
 
-    // Track whether the current <script> is actual JavaScript (not JSON, template, etc.)
+    // Whether the current <script> is real JS, not JSON/template/etc.
     let script_is_js = RefCell::new(true);
 
     // Accumulation buffers for style/script text (lol_html may split text chunks)
@@ -244,9 +244,9 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         Ok(())
     }));
 
-    // General text handler - applies to ALL text nodes, but skips RAWTEXT context
+    // Handles all text nodes except RAWTEXT context.
     element_handlers.push(text!("*", |text| {
-        // Skip text inside <style> and <script> - handled by dedicated handlers
+        // <style>/<script> text is handled by dedicated handlers.
         if *in_raw_text.borrow() {
             return Ok(());
         }

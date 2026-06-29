@@ -35,7 +35,7 @@ fn full_obfuscation_pipeline() {
     assert!(!result.contains(r#"id="header""#));
     assert!(!result.contains(r#"id="footer""#));
 
-    // HTML comments should be removed (none in this test but verify structure)
+    // HTML comments are removed (none here, just check structure).
     assert!(!result.contains("<!--"));
 
     // Output should still be valid-ish HTML
@@ -232,7 +232,7 @@ fn simple_api() {
     assert!(!result.is_empty());
 }
 
-// ---- Advanced (opt-in) features ----
+// Advanced (opt-in) features
 
 #[test]
 fn honeypots_are_injected_and_hidden() {
@@ -315,7 +315,7 @@ fn ast_string_array_hides_literals() {
 
 #[test]
 fn ast_falls_back_gracefully_on_unparsable_js() {
-    // Deliberately broken JS - the AST engine must not panic or drop the script;
+    // Deliberately broken JS: the AST engine must not panic or drop the script,
     // it falls back to the token path.
     let html = r#"<script>function ( { this is not valid js ===</script>"#;
     let result = Obfuscator::builder()

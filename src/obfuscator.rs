@@ -28,14 +28,12 @@ impl Obfuscator {
         }
     }
 
-    /// Obfuscate HTML using a two-pass approach.
-    ///
-    /// Pass 1 collects all class/ID symbols, then Pass 2 applies all transformations.
+    /// Obfuscate HTML: collect every class/ID symbol, then apply the transforms.
     pub fn obfuscate(&self, html: &str) -> Result<String> {
         let config = self.effective_config();
 
-        // Pass 0 (optional): inline local stylesheets/scripts so their content
-        // is obfuscated like inline content. Local files only - never network.
+        // Optional: inline local stylesheets/scripts so their content is
+        // obfuscated like the rest. Local files only, never network.
         let inlined;
         let html: &str = if config.inline_local_resources {
             inlined = crate::inline::inline_local(html, config.base_dir.as_deref());
@@ -49,9 +47,9 @@ impl Obfuscator {
         transform::transform(html, &symbols, &config)
     }
 
-    /// Resolve the config used for one invocation. In polymorphic mode (and
-    /// only without a fixed `seed`), a random subset of *safe* cosmetic
-    /// transforms is toggled/varied; correctness-critical ones are never touched.
+    /// Resolve the config for one invocation. In polymorphic mode (and only
+    /// without a fixed `seed`), a random subset of *safe* cosmetic transforms
+    /// is toggled/varied; correctness-critical ones are never touched.
     fn effective_config(&self) -> ObfuscationConfig {
         use rand::{rngs::StdRng, RngExt, SeedableRng};
 
@@ -129,8 +127,8 @@ impl ObfuscatorBuilder {
         self
     }
 
-    /// Backwards-compatible toggle: `true` -> [`JsStringEncoding::Escapes`],
-    /// `false` -> [`JsStringEncoding::None`].
+    /// Compat toggle: `true` maps to [`JsStringEncoding::Escapes`], `false` to
+    /// [`JsStringEncoding::None`].
     pub fn encode_js_strings(mut self, v: bool) -> Self {
         self.config.js_string_encoding = if v {
             JsStringEncoding::Escapes

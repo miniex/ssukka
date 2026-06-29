@@ -29,7 +29,7 @@ pub fn obfuscate_seeded(html: &str, seed: u64) -> Result<String, JsValue> {
 /// Obfuscate with the headline advanced layers enabled (honeypots +
 /// structural obfuscation + AST mangling/string-array/dead-code).
 ///
-/// `seed` &lt; 0 selects non-deterministic output.
+/// `seed < 0` selects non-deterministic output.
 #[wasm_bindgen]
 pub fn obfuscate_max(html: &str, honeypots: usize, seed: i64) -> Result<String, JsValue> {
     let mut b = Obfuscator::builder()

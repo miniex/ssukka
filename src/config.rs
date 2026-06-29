@@ -5,13 +5,13 @@ use std::path::PathBuf;
 pub enum JsStringEncoding {
     /// Leave string literals untouched.
     None,
-    /// Per-character escapes, randomized over `\xHH` / `\uXXXX` / `\u{..}`
+    /// Per-char escapes randomized over `\xHH` / `\uXXXX` / `\u{..}`
     /// (strict-mode-safe, token-level). Default.
     #[default]
     Escapes,
-    /// Hoist string literals into a base64 array decoded by an injected runtime
-    /// prelude. Requires the AST engine ([`ObfuscationConfig::js_ast`]); falls
-    /// back to [`JsStringEncoding::Escapes`] when the AST engine is off.
+    /// Hoist string literals into a base64 array decoded by an injected
+    /// runtime prelude. Needs the AST engine ([`ObfuscationConfig::js_ast`]);
+    /// falls back to [`JsStringEncoding::Escapes`] when it is off.
     Array,
 }
 
@@ -22,7 +22,7 @@ pub enum JsStringEncoding {
 /// the [`crate::Obfuscator`] builder.
 #[derive(Debug, Clone)]
 pub struct ObfuscationConfig {
-    // ---- HTML (cosmetic, on by default) ----
+    // HTML (cosmetic, on by default)
     pub remove_comments: bool,
     pub collapse_whitespace: bool,
     pub encode_text_entities: bool,
@@ -30,31 +30,31 @@ pub struct ObfuscationConfig {
     pub shuffle_attributes: bool,
     pub randomize_tag_case: bool,
 
-    // ---- CSS (cosmetic, on by default) ----
+    // CSS (cosmetic, on by default)
     pub rename_classes: bool,
     pub rename_ids: bool,
     pub minify_css: bool,
     pub unicode_escape_selectors: bool,
 
-    // ---- JS (cosmetic, on by default) ----
+    // JS (cosmetic, on by default)
     pub js_string_encoding: JsStringEncoding,
     pub minify_js: bool,
 
-    // ---- Honeypots / decoys (opt-in) ----
+    // Honeypots / decoys (opt-in)
     /// Inject invisible decoy links, fields, and classes to trap scrapers.
     pub inject_honeypots: bool,
     /// Number of decoy nodes to inject (when [`Self::inject_honeypots`]).
     pub honeypot_count: usize,
 
-    // ---- Structural obfuscation (opt-in, WebCloak-style) ----
+    // Structural obfuscation (opt-in, WebCloak-style)
     /// Move text content into encoded data-attributes and restore it
     /// client-side via an injected script. Resists static scrapers but
     /// requires JS execution and degrades no-JS / SEO / accessibility.
     pub structural_obfuscation: bool,
 
-    // ---- AST-based JS engine (opt-in, oxc) ----
-    /// Route `<script>` JavaScript through the oxc AST pipeline instead of the
-    /// token state machine. Required by mangling / string arrays / CFF / dead code.
+    // AST-based JS engine (opt-in, oxc)
+    /// Route `<script>` JS through the oxc AST pipeline instead of the token
+    /// state machine. Required by mangling / string arrays / CFF / dead code.
     pub js_ast: bool,
     /// Scope-aware renaming of local JS bindings (requires [`Self::js_ast`]).
     pub mangle_identifiers: bool,
@@ -65,7 +65,7 @@ pub struct ObfuscationConfig {
     /// Fraction (0.0..=1.0) of eligible sites that receive dead code.
     pub dead_code_threshold: f32,
 
-    // ---- External resources (opt-in, local files only - stays offline) ----
+    // External resources (opt-in, local files only, stays offline)
     /// Inline and obfuscate `<link rel=stylesheet>` / `<script src>` whose URL
     /// resolves to a **local file** under [`Self::base_dir`]. Never fetches
     /// over the network.
@@ -73,7 +73,7 @@ pub struct ObfuscationConfig {
     /// Base directory used to resolve local resource paths.
     pub base_dir: Option<PathBuf>,
 
-    // ---- Polymorphism / determinism ----
+    // Polymorphism / determinism
     /// Randomize *which* optional cosmetic transforms run and their intensity
     /// on each invocation, so identical input yields structurally different
     /// output every time (signature/cache evasion). Ignored when a `seed` is set.

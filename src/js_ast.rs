@@ -33,7 +33,7 @@ pub fn transform(js: &str, symbols: &SymbolMap, config: &ObfuscationConfig, rng:
         }
     }
 
-    // mangle + minify; None here means unparsable input -> caller falls back.
+    // mangle + minify; None here means unparsable input, so the caller falls back.
     code = mangle_and_print(&code, config)?;
 
     if config.dead_code_injection {
@@ -69,8 +69,8 @@ fn mangle_and_print(js: &str, config: &ObfuscationConfig) -> Option<String> {
         });
 
         if config.mangle_identifiers {
-            // top_level: false - never rename globals/top-level functions, which
-            // may be referenced from other inline scripts or HTML event handlers.
+            // top_level: false keeps globals/top-level functions intact, since
+            // they may be referenced from other inline scripts or HTML handlers.
             let mangled = Mangler::new()
                 .with_options(MangleOptions {
                     top_level: Some(false),
@@ -128,8 +128,8 @@ fn rand_id(rng: &mut StdRng, len: usize) -> String {
 /// Hoist string-literal *expressions* into a base64 array decoded at runtime.
 ///
 /// Only `Expression::StringLiteral` nodes are rewritten, so property keys,
-/// directives (`"use strict"`), and import/export sources - which are not
-/// expression nodes - are left untouched. Returns `None` if there is nothing to
+/// directives (`"use strict"`), and import/export sources, which are not
+/// expression nodes, are left untouched. Returns `None` if there is nothing to
 /// do or if the rewrite would not re-parse.
 fn string_array_pass(js: &str, rng: &mut StdRng) -> Option<String> {
     let spans = collect_string_expr_spans(js)?;
@@ -238,7 +238,7 @@ fn cff_pass(js: &str, rng: &mut StdRng) -> Option<String> {
     }
 
     // Only flatten when every top-level statement is a plain expression
-    // statement - anything else (declarations, returns, loops) is unsafe to
+    // statement; anything else (declarations, returns, loops) is unsafe to
     // move into switch cases due to hoisting/scoping.
     let body = &ret.program.body;
     if body.len() < 3 || !body.iter().all(|s| matches!(s, Statement::ExpressionStatement(_))) {

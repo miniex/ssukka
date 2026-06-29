@@ -14,10 +14,10 @@ enum State {
     TemplateString,
 }
 
-/// Transform JavaScript source: encode string literals, replace class/ID references, minify.
+/// Transform JS: replace class/ID references, encode string literals, minify.
 ///
-/// `encoding` selects the string-literal strategy. [`JsStringEncoding::Array`] is
-/// handled by the AST engine; here it degrades to [`JsStringEncoding::Escapes`].
+/// `encoding` selects the string-literal strategy. [`JsStringEncoding::Array`]
+/// is the AST engine's job; here it degrades to [`JsStringEncoding::Escapes`].
 pub fn transform_js(
     js: &str,
     symbols: &SymbolMap,
@@ -73,10 +73,8 @@ fn escape_char(ch: char, out: &mut String, rng: &mut StdRng) {
     }
 }
 
-/// Replace class/ID names inside JS string literals.
-///
-/// Scans for patterns like `"foo"`, `'foo'`, `` `foo` `` and replaces
-/// class/ID names found within them.
+/// Replace class/ID names inside JS string literals (`"foo"`, `'foo'`,
+/// `` `foo` ``).
 pub(crate) fn replace_symbol_references(
     js: &str,
     symbols: &SymbolMap,
@@ -183,7 +181,7 @@ pub(crate) fn replace_symbol_references(
                     }
                 }
 
-                // Replace symbols in the string content (word-boundary aware)
+                // Replace symbols in the string content, word-boundary aware.
                 let mut replaced = string_content;
                 if rename_classes {
                     let mut class_pairs: Vec<_> = symbols.classes().iter().collect();
@@ -294,7 +292,7 @@ fn encode_js_strings(js: &str, rng: &mut StdRng) -> String {
                                     i += 1;
                                 }
                             } else {
-                                // \uXXXX - consume 4 hex digits
+                                // \uXXXX: consume 4 hex digits
                                 for _ in 0..4 {
                                     if i < len {
                                         out.push(chars[i]);
@@ -303,7 +301,7 @@ fn encode_js_strings(js: &str, rng: &mut StdRng) -> String {
                                 }
                             }
                         } else if next == 'x' {
-                            // \xHH - consume 2 hex digits
+                            // \xHH: consume 2 hex digits
                             for _ in 0..2 {
                                 if i < len {
                                     out.push(chars[i]);
@@ -332,9 +330,9 @@ fn encode_js_strings(js: &str, rng: &mut StdRng) -> String {
     out
 }
 
-/// Basic JS minification: remove comments, collapse whitespace.
+/// Basic JS minification: strip comments, collapse whitespace.
 ///
-/// This is intentionally simple - we don't parse the full JS AST.
+/// Intentionally simple: no full AST parse.
 fn minify_js(js: &str) -> String {
     let chars: Vec<char> = js.chars().collect();
     let len = chars.len();
@@ -690,8 +688,8 @@ fn extract_trailing_prefix(s: &str) -> Option<String> {
     }
 }
 
-/// Replace class/ID names in text using word-boundary matching.
-/// Used for non-JS script content (JSON data) where class/ID names appear as values.
+/// Replace class/ID names in text via word-boundary matching, for non-JS
+/// script content (e.g. JSON) where the names appear as values.
 pub fn replace_symbols_word_boundary(
     text: &str,
     symbols: &crate::symbol_map::SymbolMap,
@@ -741,7 +739,7 @@ fn replace_word(text: &str, word: &str, replacement: &str) -> String {
             result.push_str(replacement);
             search_from = end_pos;
         } else {
-            // Not a word boundary match - advance past the first byte
+            // Not a word-boundary match; advance past the first byte.
             result.push_str(&text[search_from..abs_pos + 1]);
             search_from = abs_pos + 1;
         }
