@@ -110,6 +110,28 @@ fn whitespace_collapse() {
 }
 
 #[test]
+fn drops_table_whitespace_keeps_list_whitespace() {
+    let html = "<table> <tbody> <tr> <td>a</td> </tr> </tbody> </table><ul> <li>x</li> </ul>";
+    let result = Obfuscator::builder()
+        .seed(42)
+        .encode_text_entities(false)
+        .randomize_tag_case(false)
+        .shuffle_attributes(false)
+        .rename_classes(false)
+        .rename_ids(false)
+        .build()
+        .obfuscate(html)
+        .unwrap();
+    // Table-internal whitespace never renders, so it is dropped.
+    assert!(
+        result.contains("<table><tbody><tr><td>a</td></tr></tbody></table>"),
+        "{result}"
+    );
+    // List whitespace is kept (an inline-block child could show a gap).
+    assert!(result.contains("<ul> <li>x</li> </ul>"), "{result}");
+}
+
+#[test]
 fn pre_whitespace_preserved() {
     let html = "<pre>  code  \n  here  </pre>";
 

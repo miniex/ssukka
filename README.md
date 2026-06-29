@@ -16,7 +16,7 @@ HTML obfuscation library and CLI for Rust. Renders identically in browsers but i
 - **CSS selector unicode escaping** - `.foo` becomes `.\66\6f\6f`
 - **JS string encoding** - string literals encoded with a randomized mix of `\xHH` / `\uXXXX` / `\u{..}` (strict-mode-safe)
 - **JS minification** - comment removal and whitespace compression
-- **Comment removal** and **whitespace collapsing** - IE conditional comments are preserved
+- **Comment removal** and **whitespace collapsing** - IE conditional comments are preserved; whitespace-only text inside table/select containers (where it never renders) is dropped, everything else collapses to a single space
 - **Deterministic output** - seed-based RNG for reproducible results
 
 ### Advanced (opt-in)

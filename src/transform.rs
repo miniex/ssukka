@@ -177,8 +177,8 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
 
         // Maintain the open-element stack (only for elements that have an end
         // tag, keeping it balanced regardless of void/self-closing elements).
-        // Scopes structural relocation, the watermark, and word-splitting to content.
-        if structural_obf || watermark_id.is_some() || split_words {
+        // Gives the text handler its parent tag (content scoping + whitespace drop).
+        if structural_obf || watermark_id.is_some() || split_words || collapse_ws {
             if let Some(handlers) = el.end_tag_handlers() {
                 tag_stack.borrow_mut().push(tag_lower.clone());
                 let stack = Rc::clone(&tag_stack);
@@ -321,6 +321,21 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         }
 
         let is_preserved = *preserved_depth.borrow() > 0;
+
+        // Drop whitespace-only text inside table/select containers: the parser
+        // never renders it, so removing it is safe regardless of CSS.
+        if collapse_ws && !is_preserved && content.trim().is_empty() {
+            let in_container = tag_stack
+                .borrow()
+                .last()
+                .map(|t| whitespace::is_whitespace_container(t))
+                .unwrap_or(false);
+            if in_container {
+                text.replace("", ContentType::Html);
+                return Ok(());
+            }
+        }
+
         let mut processed = content;
 
         if collapse_ws && !is_preserved {
