@@ -31,6 +31,11 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic 
 - **Structural obfuscation encoding is now polymorphic.** The fixed `data-ssk` + plain-base64 scheme (a published, generically-decodable signature) is replaced by a per-document `Scheme`: a random `data-*` attribute name, a cyclic XOR key, and an optional byte reverse, all baked into the matching restore script. No single static decoder recipe works across builds; verified semantics-preserving (incl. multibyte UTF-8) under Node. (`src/structural.rs`, `src/transform.rs`)
 - **Attribute reordering is now gzip/brotli-friendly.** The per-element random shuffle is replaced by a document-stable order (FNV-1a of the name salted per document; deterministic under `--seed`). Output still differs from source, but identical tag shapes serialize identically. Seeded output bytes differ from 0.2.1. (`src/html/tags.rs`, `src/transform.rs`)
 
+### Dependencies
+
+- Bumped `oxc` 0.136 -> 0.137 and `wasm-bindgen` 0.2.125 -> 0.2.126; MSRV stays 1.94 (oxc 0.137 still builds on it).
+- The Nix flake reads its package version from `Cargo.toml` instead of hardcoding it, so it can't go stale (verified with `nix build`). (`flake.nix`)
+
 ## [0.2.1] - 2026-06-20
 
 ### Fixed

@@ -29,7 +29,7 @@ lightningcss = { version = "1.0.0-alpha.71", features = [
   "visitor",
 ] } # visitor: rename @keyframes / animation-name idents
 lol_html = "3.0.0"
-oxc = { version = "0.136.0", features = [
+oxc = { version = "0.137.0", features = [
   "semantic",
   "mangler",
   "codegen",
@@ -37,7 +37,7 @@ oxc = { version = "0.136.0", features = [
   "cfg",
 ] }
 rand = "0.10.1"
-wasm-bindgen = { version = "0.2.125", optional = true } # browser/edge bindings
+wasm-bindgen = { version = "0.2.126", optional = true } # browser/edge bindings
 
 [dev-dependencies]
 criterion = "0.8.2"
