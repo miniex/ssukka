@@ -59,6 +59,11 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     // One salt per document keeps attribute ordering stable (gzip-friendly).
     let attr_salt: u64 = rng.borrow_mut().random_range(0..=u64::MAX);
 
+    // Per-document structural scheme (random attr/key/reverse) defeats fixed decoders.
+    let structural_scheme = config
+        .structural_obfuscation
+        .then(|| structural::Scheme::new(&mut rng.borrow_mut()));
+
     let remove_comments = config.remove_comments;
     let collapse_ws = config.collapse_whitespace;
     let encode_text = config.encode_text_entities;
@@ -332,9 +337,11 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
 
         // Structural obfuscation: relocate non-blank text inside safe flow
         // elements into an encoded data-attribute, restored client-side.
-        if structural_obf && !is_preserved && parent_is_safe && !processed.trim().is_empty() {
-            text.replace(&structural::encode_text_node(&processed), ContentType::Html);
-            return Ok(());
+        if let Some(scheme) = &structural_scheme {
+            if !is_preserved && parent_is_safe && !processed.trim().is_empty() {
+                text.replace(&scheme.encode_text_node(&processed), ContentType::Html);
+                return Ok(());
+            }
         }
 
         if encode_text {
@@ -366,8 +373,8 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
                 let decoys = honeypot::generate(honeypot_count, &mut rng);
                 el.append(&decoys, ContentType::Html);
             }
-            if structural_obf {
-                el.append(structural::restore_script(), ContentType::Html);
+            if let Some(scheme) = &structural_scheme {
+                el.append(&scheme.restore_script(), ContentType::Html);
             }
             Ok(())
         }));

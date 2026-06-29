@@ -261,8 +261,13 @@ fn structural_obfuscation_hides_text_and_injects_restore() {
         .unwrap();
     // The visible text is gone from static markup; a restore hook remains.
     assert!(!result.contains("Secret paragraph text"));
-    assert!(result.contains("data-ssk="));
+    assert!(
+        result.contains("<span data-"),
+        "payload span with a data- attr: {result}"
+    );
     assert!(result.contains("TextDecoder"));
+    // The old fixed scheme must no longer be emitted verbatim.
+    assert!(!result.contains("data-ssk"));
 }
 
 #[test]
