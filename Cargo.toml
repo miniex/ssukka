@@ -18,13 +18,16 @@ default = []
 wasm = ["dep:wasm-bindgen", "dep:getrandom", "dep:getrandom_03"]
 
 [dependencies]
+aho-corasick = "1.1.4" # single-pass class/ID replacement in JS (already in the tree)
 getrandom = { version = "0.4.3", optional = true, features = [
   "wasm_js",
 ] } # wasm backend for rand's getrandom
 getrandom_03 = { package = "getrandom", version = "0.3.4", optional = true, features = [
   "wasm_js",
 ] } # wasm backend for ahash's getrandom
-lightningcss = "1.0.0-alpha.71"
+lightningcss = { version = "1.0.0-alpha.71", features = [
+  "visitor",
+] } # visitor: rename @keyframes / animation-name idents
 lol_html = "3.0.0"
 oxc = { version = "0.136.0", features = [
   "semantic",

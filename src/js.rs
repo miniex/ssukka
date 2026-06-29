@@ -1,7 +1,9 @@
 use crate::config::JsStringEncoding;
 use crate::symbol_map::SymbolMap;
+use aho_corasick::{AhoCorasick, MatchKind};
 use rand::rngs::StdRng;
 use rand::RngExt;
+use std::collections::HashMap;
 
 /// State machine states for JS lexing.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -86,6 +88,10 @@ pub(crate) fn replace_symbol_references(
     let mut out = String::with_capacity(len);
     let mut i = 0;
     let mut state = State::Normal;
+
+    // Build the match automata once and reuse them for every string literal.
+    let class_ac = rename_classes.then(|| ac_from_map(symbols.classes())).flatten();
+    let id_ac = rename_ids.then(|| ac_from_map(symbols.ids())).flatten();
 
     while i < len {
         match state {
@@ -183,19 +189,11 @@ pub(crate) fn replace_symbol_references(
 
                 // Replace symbols in the string content, word-boundary aware.
                 let mut replaced = string_content;
-                if rename_classes {
-                    let mut class_pairs: Vec<_> = symbols.classes().iter().collect();
-                    class_pairs.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
-                    for (original, obfuscated) in &class_pairs {
-                        replaced = replace_word(&replaced, original, obfuscated);
-                    }
+                if let Some((ac, repls)) = &class_ac {
+                    replaced = replace_words_ac(&replaced, ac, repls);
                 }
-                if rename_ids {
-                    let mut id_pairs: Vec<_> = symbols.ids().iter().collect();
-                    id_pairs.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
-                    for (original, obfuscated) in &id_pairs {
-                        replaced = replace_word(&replaced, original, obfuscated);
-                    }
+                if let Some((ac, repls)) = &id_ac {
+                    replaced = replace_words_ac(&replaced, ac, repls);
                 }
 
                 out.push_str(&replaced);
@@ -698,54 +696,51 @@ pub fn replace_symbols_word_boundary(
 ) -> String {
     let mut result = text.to_owned();
     if rename_classes {
-        let mut class_pairs: Vec<_> = symbols.classes().iter().collect();
-        class_pairs.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
-        for (original, obfuscated) in &class_pairs {
-            result = replace_word(&result, original, obfuscated);
+        if let Some((ac, repls)) = ac_from_map(symbols.classes()) {
+            result = replace_words_ac(&result, &ac, &repls);
         }
     }
     if rename_ids {
-        let mut id_pairs: Vec<_> = symbols.ids().iter().collect();
-        id_pairs.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
-        for (original, obfuscated) in &id_pairs {
-            result = replace_word(&result, original, obfuscated);
+        if let Some((ac, repls)) = ac_from_map(symbols.ids()) {
+            result = replace_words_ac(&result, &ac, &repls);
         }
     }
     result
 }
 
-/// Replace `word` with `replacement` only at class/ID name word boundaries.
-///
-/// A boundary exists where the adjacent character is NOT `[a-zA-Z0-9_-]`.
-/// This prevents "critical" from matching inside "sev_critical".
-fn replace_word(text: &str, word: &str, replacement: &str) -> String {
-    if word.is_empty() {
-        return text.to_owned();
+/// Build a leftmost-longest automaton over a name map's originals, plus the
+/// aligned replacements (indexed by pattern id). `None` if the map is empty.
+fn ac_from_map(map: &HashMap<String, String>) -> Option<(AhoCorasick, Vec<String>)> {
+    if map.is_empty() {
+        return None;
     }
-    let text_bytes = text.as_bytes();
-    let word_bytes = word.as_bytes();
-    let mut result = String::with_capacity(text.len());
-    let mut search_from = 0;
+    let patterns: Vec<&str> = map.keys().map(String::as_str).collect();
+    let repls: Vec<String> = patterns.iter().map(|p| map[*p].clone()).collect();
+    let ac = AhoCorasick::builder()
+        .match_kind(MatchKind::LeftmostLongest)
+        .build(&patterns)
+        .ok()?;
+    Some((ac, repls))
+}
 
-    while let Some(pos) = text[search_from..].find(word) {
-        let abs_pos = search_from + pos;
-        let end_pos = abs_pos + word_bytes.len();
-
-        let before_ok = abs_pos == 0 || !is_css_name_char(text_bytes[abs_pos - 1]);
-        let after_ok = end_pos >= text_bytes.len() || !is_css_name_char(text_bytes[end_pos]);
-
+/// Replace whole-word matches in one linear pass: leftmost-longest plus a
+/// class/ID boundary check, so a name is never rewritten inside a larger ident.
+fn replace_words_ac(text: &str, ac: &AhoCorasick, repls: &[String]) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for m in ac.find_iter(text) {
+        let (s, e) = (m.start(), m.end());
+        let before_ok = s == 0 || !is_css_name_char(bytes[s - 1]);
+        let after_ok = e >= bytes.len() || !is_css_name_char(bytes[e]);
         if before_ok && after_ok {
-            result.push_str(&text[search_from..abs_pos]);
-            result.push_str(replacement);
-            search_from = end_pos;
-        } else {
-            // Not a word-boundary match; advance past the first byte.
-            result.push_str(&text[search_from..abs_pos + 1]);
-            search_from = abs_pos + 1;
+            out.push_str(&text[last..s]);
+            out.push_str(&repls[m.pattern().as_usize()]);
+            last = e;
         }
     }
-    result.push_str(&text[search_from..]);
-    result
+    out.push_str(&text[last..]);
+    out
 }
 
 fn is_css_name_char(b: u8) -> bool {

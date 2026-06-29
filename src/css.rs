@@ -56,7 +56,41 @@ fn extract_from_rule(
                 extract_from_rule(r, symbols, rename_classes, rename_ids);
             }
         },
+        // Keyframe names (grouped with class renaming). Only names *defined* here
+        // are registered, so a reference to an external keyframe stays intact.
+        CssRule::Keyframes(kf) if rename_classes => {
+            use lightningcss::rules::keyframes::KeyframesName;
+            let name = match &kf.name {
+                KeyframesName::Ident(id) => &id.0,
+                KeyframesName::Custom(s) => s,
+            };
+            symbols.register_keyframe(name);
+        },
         _ => {},
+    }
+}
+
+/// lightningcss visitor that renames `@keyframes` names and their
+/// `animation` / `animation-name` references (all `CustomIdent`s) via the map.
+struct KeyframeRenamer<'a> {
+    symbols: &'a SymbolMap,
+}
+
+impl<'i> lightningcss::visitor::Visitor<'i> for KeyframeRenamer<'_> {
+    type Error = std::convert::Infallible;
+
+    fn visit_types(&self) -> lightningcss::visitor::VisitTypes {
+        lightningcss::visitor::VisitTypes::CUSTOM_IDENTS
+    }
+
+    fn visit_custom_ident(
+        &mut self,
+        ident: &mut lightningcss::values::ident::CustomIdent<'_>,
+    ) -> std::result::Result<(), Self::Error> {
+        if let Some(new) = self.symbols.get_keyframe(ident.0.as_ref()) {
+            ident.0 = new.to_string().into();
+        }
+        Ok(())
     }
 }
 
@@ -77,15 +111,23 @@ pub fn transform_css(
         result = rename_selectors(&result, symbols, rename_classes, rename_ids);
     }
 
-    if minify {
-        // Parse from an owned copy so the borrow is scoped
+    // Rename keyframe/animation names via a lightningcss visitor (handles the
+    // shorthand). Shares the parse/print with minification when both are on.
+    let rename_kf = rename_classes && !symbols.keyframes().is_empty();
+    if minify || rename_kf {
+        use lightningcss::visitor::Visit;
+        // Parse from an owned copy so the borrow is scoped.
         let to_parse = result.clone();
-        let stylesheet =
+        let mut stylesheet =
             lightningcss::stylesheet::StyleSheet::parse(&to_parse, lightningcss::stylesheet::ParserOptions::default())
                 .map_err(|e| SsukkaError::Css(e.to_string()))?;
 
+        if rename_kf {
+            let _ = stylesheet.visit(&mut KeyframeRenamer { symbols });
+        }
+
         let print_options = lightningcss::printer::PrinterOptions {
-            minify: true,
+            minify,
             ..Default::default()
         };
         let output = stylesheet
@@ -367,6 +409,30 @@ mod tests {
         let out = unicode_escape_selectors(".foo{color:#fff}");
         assert!(!out.contains(".foo"), "selector escaped: {out}");
         assert!(out.contains("#fff"), "hex color value untouched: {out}");
+    }
+
+    #[test]
+    fn renames_keyframes_and_animation_references() {
+        let css = "@keyframes spin{from{opacity:0}to{opacity:1}}.box{animation:spin 2s linear;animation-name:spin}";
+        let mut symbols = SymbolMap::new(Some(1));
+        extract_selectors(css, &mut symbols, true, true);
+        let kf = symbols.get_keyframe("spin").expect("keyframe registered").to_owned();
+        let out = transform_css(css, &symbols, true, false, true, false).unwrap();
+        assert!(
+            out.contains(&format!("@keyframes {kf}")),
+            "keyframes def renamed: {out}"
+        );
+        assert!(out.contains(&kf), "animation reference renamed: {out}");
+        assert!(!out.contains("spin"), "no original keyframe name remains: {out}");
+    }
+
+    #[test]
+    fn keyframe_rename_skips_undefined_animation_names() {
+        // An animation referencing a keyframe not defined here must stay intact.
+        let css = ".box{animation-name:external}";
+        let symbols = SymbolMap::new(Some(1));
+        let out = transform_css(css, &symbols, true, false, true, false).unwrap();
+        assert!(out.contains("external"), "undefined keyframe ref preserved: {out}");
     }
 
     #[test]

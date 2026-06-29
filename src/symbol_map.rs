@@ -9,6 +9,7 @@ use std::collections::HashMap;
 pub struct SymbolMap {
     classes: HashMap<String, String>,
     ids: HashMap<String, String>,
+    keyframes: HashMap<String, String>,
     rng: StdRng,
     counter: u32,
 }
@@ -22,6 +23,7 @@ impl SymbolMap {
         Self {
             classes: HashMap::new(),
             ids: HashMap::new(),
+            keyframes: HashMap::new(),
             rng,
             counter: 0,
         }
@@ -43,9 +45,22 @@ impl SymbolMap {
         }
     }
 
+    /// Register a `@keyframes` name for later mapping. Does nothing if already registered.
+    pub fn register_keyframe(&mut self, name: &str) {
+        if !self.keyframes.contains_key(name) {
+            let obf = self.generate_name();
+            self.keyframes.insert(name.to_owned(), obf);
+        }
+    }
+
     /// Look up the obfuscated name for a class.
     pub fn get_class(&self, name: &str) -> Option<&str> {
         self.classes.get(name).map(|s| s.as_str())
+    }
+
+    /// Look up the obfuscated name for a `@keyframes` animation.
+    pub fn get_keyframe(&self, name: &str) -> Option<&str> {
+        self.keyframes.get(name).map(|s| s.as_str())
     }
 
     /// Look up the obfuscated name for an ID.
@@ -61,6 +76,11 @@ impl SymbolMap {
     /// Returns all ID mappings (original -> obfuscated).
     pub fn ids(&self) -> &HashMap<String, String> {
         &self.ids
+    }
+
+    /// Returns all keyframe mappings (original -> obfuscated).
+    pub fn keyframes(&self) -> &HashMap<String, String> {
+        &self.keyframes
     }
 
     /// Resolve compound class names from JS concatenation prefixes: register

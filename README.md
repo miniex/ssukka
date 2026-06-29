@@ -8,7 +8,7 @@ HTML obfuscation library and CLI for Rust. Renders identically in browsers but i
 
 ### Cosmetic (on by default)
 
-- **Class/ID renaming** - consistent across HTML, CSS, and JavaScript (including dynamic construction patterns)
+- **Class/ID/keyframe renaming** - consistent across HTML, CSS, and JavaScript (including dynamic construction patterns); `@keyframes` and their `animation` / `animation-name` references are renamed too
 - **HTML entity encoding** - text and attribute values encoded as decimal/hex/named entities
 - **Tag case randomization** - `<div>` becomes `<DiV>` (skipped inside `<svg>`/`<math>`, whose names are case-sensitive)
 - **Attribute reordering** - document-stable, seed-derived order: differs from source yet keeps output gzip/brotli-friendly
