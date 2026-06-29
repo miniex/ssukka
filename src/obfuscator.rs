@@ -174,6 +174,11 @@ impl ObfuscatorBuilder {
         self
     }
 
+    pub fn poison_names(mut self, v: bool) -> Self {
+        self.config.poison_names = v;
+        self
+    }
+
     pub fn control_flow_flattening(mut self, v: bool) -> Self {
         self.config.control_flow_flattening = v;
         self
@@ -186,6 +191,18 @@ impl ObfuscatorBuilder {
 
     pub fn dead_code_threshold(mut self, t: f32) -> Self {
         self.config.dead_code_threshold = t.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Embed `id` once as an invisible zero-width watermark in the text.
+    pub fn watermark(mut self, id: u64) -> Self {
+        self.config.watermark = Some(id);
+        self
+    }
+
+    /// Inject `<meta>` AI opt-out signals (`robots: noai`, TDM reservation).
+    pub fn emit_ai_opt_out(mut self, v: bool) -> Self {
+        self.config.emit_ai_opt_out = v;
         self
     }
 

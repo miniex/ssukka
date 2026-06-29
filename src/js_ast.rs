@@ -15,6 +15,7 @@ use oxc::parser::Parser;
 use oxc::span::SourceType;
 use rand::rngs::StdRng;
 use rand::RngExt;
+use std::collections::{HashMap, HashSet};
 
 /// Run the AST pipeline. Returns `None` if the input cannot be parsed (the
 /// caller should then fall back to the token-based path).
@@ -35,6 +36,13 @@ pub fn transform(js: &str, symbols: &SymbolMap, config: &ObfuscationConfig, rng:
 
     // mangle + minify; None here means unparsable input, so the caller falls back.
     code = mangle_and_print(&code, config)?;
+
+    // Relabel the mangler's debug slots to misleading dictionary names.
+    if config.poison_names {
+        if let Some(next) = poison_pass(&code, rng) {
+            code = next;
+        }
+    }
 
     if config.dead_code_injection {
         if let Some(next) = dead_code_pass(&code, config.dead_code_threshold, rng) {
@@ -68,13 +76,14 @@ fn mangle_and_print(js: &str, config: &ObfuscationConfig) -> Option<String> {
             ..CodegenOptions::default()
         });
 
-        if config.mangle_identifiers {
+        if config.mangle_identifiers || config.poison_names {
             // top_level: false keeps globals/top-level functions intact, since
             // they may be referenced from other inline scripts or HTML handlers.
+            // Poison mode emits debug `slot_N` names for the relabel pass below.
             let mangled = Mangler::new()
                 .with_options(MangleOptions {
                     top_level: Some(false),
-                    debug: false,
+                    debug: config.poison_names,
                     ..MangleOptions::default()
                 })
                 .build(&program);
@@ -283,6 +292,131 @@ fn cff_pass(js: &str, rng: &mut StdRng) -> Option<String> {
     parses_ok(&result).then_some(result)
 }
 
+/// Plausible-but-arbitrary names. Renaming locals to these (not base54 `e,t,n`)
+/// anchors an LLM cleanup pass on misleading names it keeps rather than re-derives.
+#[rustfmt::skip]
+const POISON_WORDS: &[&str] = &[
+    "handler", "buffer", "context", "payload", "session", "adapter", "cursor", "factory",
+    "provider", "wrapper", "builder", "parser", "loader", "worker", "record", "registry",
+    "manager", "sentinel", "beacon", "anchor", "harbor", "monitor", "tracker", "sampler",
+    "mapper", "reducer", "emitter", "listener", "dispatcher", "scheduler", "validator",
+    "formatter", "resolver", "collector", "aggregator", "broker", "courier", "warden",
+    "scout", "ranger", "pilot", "envoy", "herald", "keeper", "weaver", "forge", "lantern",
+    "compass", "ledger", "satchel", "beacon2", "marshal", "curator", "steward", "porter",
+    "drifter", "glider", "mariner", "nomad", "ember", "cinder", "willow", "cedar", "harbor2",
+    "meadow", "thicket", "hollow", "quarry", "summit", "delta", "vertex", "lattice", "prism",
+    "cobalt", "amber", "onyx", "quartz", "basalt", "zephyr", "mistral", "monsoon",
+];
+
+/// `(start, end, slot index)` of one `slot_N` identifier occurrence.
+type SlotSpan = (usize, usize, u32);
+
+/// Rename the mangler's `slot_N` debug names to misleading dictionary words.
+///
+/// Each distinct slot gets a distinct word absent elsewhere in the program, so
+/// nothing is shadowed; the pool is shuffled per build, overflow uses suffixes.
+/// `None` if there is nothing to do or the result would not re-parse.
+fn poison_pass(js: &str, rng: &mut StdRng) -> Option<String> {
+    let (slots, used) = collect_slots_and_used(js)?;
+    if slots.is_empty() {
+        return None;
+    }
+
+    let mut pool: Vec<&str> = POISON_WORDS.to_vec();
+    for i in (1..pool.len()).rev() {
+        let j = rng.random_range(0..=i);
+        pool.swap(i, j);
+    }
+
+    let mut indices: Vec<u32> = slots.iter().map(|&(_, _, i)| i).collect();
+    indices.sort_unstable();
+    indices.dedup();
+
+    let mut names: HashMap<u32, String> = HashMap::new();
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut pool_iter = pool.into_iter();
+    let mut overflow = 0u32;
+    for idx in indices {
+        let name = pool_iter
+            .by_ref()
+            .find(|w| !used.contains(*w) && !taken.contains(*w))
+            .map(str::to_owned)
+            .unwrap_or_else(|| loop {
+                overflow += 1;
+                let cand = format!("handler{overflow}");
+                if !used.contains(&cand) && !taken.contains(&cand) {
+                    break cand;
+                }
+            });
+        taken.insert(name.clone());
+        names.insert(idx, name);
+    }
+
+    // Splice from the end so earlier byte offsets stay valid.
+    let mut out = js.to_owned();
+    let mut spans = slots;
+    spans.sort_by_key(|&(start, _, _)| start);
+    for (start, end, idx) in spans.iter().rev() {
+        out.replace_range(*start..*end, &names[idx]);
+    }
+    parses_ok(&out).then_some(out)
+}
+
+/// Collect every `slot_N` identifier span, plus all other identifier names
+/// (globals, members, labels, kept bindings) so poison names can avoid them.
+fn collect_slots_and_used(js: &str) -> Option<(Vec<SlotSpan>, HashSet<String>)> {
+    use oxc::ast::ast::{BindingIdentifier, IdentifierName, IdentifierReference, LabelIdentifier};
+    use oxc::ast_visit::Visit;
+
+    fn slot_index(name: &str) -> Option<u32> {
+        name.strip_prefix("slot_").and_then(|n| n.parse::<u32>().ok())
+    }
+
+    struct Collector {
+        slots: Vec<SlotSpan>,
+        used: HashSet<String>,
+    }
+    impl<'a> Visit<'a> for Collector {
+        fn visit_binding_identifier(&mut self, id: &BindingIdentifier<'a>) {
+            match slot_index(&id.name) {
+                Some(i) => self.slots.push((id.span.start as usize, id.span.end as usize, i)),
+                None => {
+                    self.used.insert(id.name.to_string());
+                },
+            }
+        }
+        fn visit_identifier_reference(&mut self, id: &IdentifierReference<'a>) {
+            match slot_index(&id.name) {
+                Some(i) => self.slots.push((id.span.start as usize, id.span.end as usize, i)),
+                None => {
+                    self.used.insert(id.name.to_string());
+                },
+            }
+        }
+        fn visit_identifier_name(&mut self, id: &IdentifierName<'a>) {
+            self.used.insert(id.name.to_string());
+        }
+        fn visit_label_identifier(&mut self, id: &LabelIdentifier<'a>) {
+            self.used.insert(id.name.to_string());
+        }
+    }
+
+    for source_type in [SourceType::cjs(), SourceType::mjs()] {
+        let allocator = Allocator::default();
+        let ret = Parser::new(&allocator, js, source_type).parse();
+        if ret.panicked || !ret.diagnostics.is_empty() {
+            continue;
+        }
+        let mut c = Collector {
+            slots: Vec::new(),
+            used: HashSet::new(),
+        };
+        c.visit_program(&ret.program);
+        return Some((c.slots, c.used));
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +459,38 @@ mod tests {
         assert!(out.contains("\"use strict\""));
         assert!(out.contains("\"k\""));
         assert!(parses_ok(&out));
+    }
+
+    #[test]
+    fn poison_names_relabels_locals_without_slots_or_shadowing() {
+        let mut c = cfg();
+        c.poison_names = true;
+        let mut rng = StdRng::seed_from_u64(7);
+        let src = "function add(a, b) { const sum = a + b; return console.log(sum); } add(1, 2);";
+        let out = transform(src, &SymbolMap::new(Some(7)), &c, &mut rng).unwrap();
+        assert!(parses_ok(&out), "poisoned output must parse: {out}");
+        assert!(!out.contains("slot_"), "debug slot names must be relabeled: {out}");
+        // Globals/members must survive (never chosen as poison targets).
+        assert!(out.contains("console"), "global must remain: {out}");
+        assert!(
+            POISON_WORDS.iter().any(|w| out.contains(w)),
+            "a poison name should appear: {out}"
+        );
+    }
+
+    #[test]
+    fn poison_names_does_not_collide_with_program_identifiers() {
+        // A global named like a poison word must not be shadowed: the pass skips
+        // any word already present in the program.
+        let mut c = cfg();
+        c.poison_names = true;
+        c.minify_js = false;
+        let mut rng = StdRng::seed_from_u64(11);
+        let src = "function f(x){var y=x+1;return handler(y);}f(handler);";
+        let out = transform(src, &SymbolMap::new(Some(11)), &c, &mut rng).unwrap();
+        assert!(parses_ok(&out), "must parse: {out}");
+        // `handler` is a referenced global, so no local may be renamed to it.
+        assert!(out.contains("handler"), "{out}");
     }
 
     #[test]

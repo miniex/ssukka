@@ -9,6 +9,7 @@ use crate::js;
 use crate::js_ast;
 use crate::structural;
 use crate::symbol_map::SymbolMap;
+use crate::watermark;
 use lol_html::html_content::ContentType;
 use lol_html::{doc_comments, element, text, HtmlRewriter, Settings};
 use rand::rngs::StdRng;
@@ -77,6 +78,8 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     let inject_honeypots = config.inject_honeypots;
     let honeypot_count = config.honeypot_count;
     let structural_obf = config.structural_obfuscation;
+    let watermark_id = config.watermark;
+    let emit_ai_opt_out = config.emit_ai_opt_out;
     let wants_ast = config.wants_ast();
 
     // Track preserved-whitespace context (Rc for sharing with end_tag_handlers)
@@ -96,6 +99,9 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
 
     // Whether the current <script> is real JS, not JSON/template/etc.
     let script_is_js = RefCell::new(true);
+
+    // The watermark is embedded only once.
+    let watermark_done = RefCell::new(false);
 
     // Accumulation buffers for style/script text (lol_html may split text chunks)
     let style_buf: RefCell<String> = RefCell::new(String::new());
@@ -159,7 +165,8 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
 
         // Maintain the open-element stack (only for elements that have an end
         // tag, keeping it balanced regardless of void/self-closing elements).
-        if structural_obf {
+        // Needed to scope structural relocation and the watermark to content.
+        if structural_obf || watermark_id.is_some() {
             if let Some(handlers) = el.end_tag_handlers() {
                 tag_stack.borrow_mut().push(tag_lower.clone());
                 let stack = Rc::clone(&tag_stack);
@@ -308,18 +315,26 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
             processed = whitespace::collapse_whitespace(&processed);
         }
 
+        // Watermark/structural apply only to normal flow content (not <title>/metadata).
+        let parent_is_safe = tag_stack
+            .borrow()
+            .last()
+            .map(|t| structural::is_safe_tag(t))
+            .unwrap_or(false);
+
+        // Before the structural/entity passes so it travels with the text either way.
+        if let Some(id) = watermark_id {
+            if !is_preserved && parent_is_safe && !*watermark_done.borrow() && !processed.trim().is_empty() {
+                processed = format!("{}{processed}", watermark::embed(id));
+                *watermark_done.borrow_mut() = true;
+            }
+        }
+
         // Structural obfuscation: relocate non-blank text inside safe flow
         // elements into an encoded data-attribute, restored client-side.
-        if structural_obf && !is_preserved && !processed.trim().is_empty() {
-            let parent_is_safe = tag_stack
-                .borrow()
-                .last()
-                .map(|t| structural::is_safe_tag(t))
-                .unwrap_or(false);
-            if parent_is_safe {
-                text.replace(&structural::encode_text_node(&processed), ContentType::Html);
-                return Ok(());
-            }
+        if structural_obf && !is_preserved && parent_is_safe && !processed.trim().is_empty() {
+            text.replace(&structural::encode_text_node(&processed), ContentType::Html);
+            return Ok(());
         }
 
         if encode_text {
@@ -330,6 +345,18 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         text.replace(&processed, ContentType::Html);
         Ok(())
     }));
+
+    // Inject machine-readable AI opt-out signals at the start of <head>.
+    if emit_ai_opt_out {
+        element_handlers.push(element!("head", |el| {
+            el.prepend(
+                "<meta name=\"robots\" content=\"noai, noimageai\">\
+<meta name=\"tdm-reservation\" content=\"1\">",
+                ContentType::Html,
+            );
+            Ok(())
+        }));
+    }
 
     // Inject honeypots and the structural-restore script at the end of <body>.
     if inject_honeypots || structural_obf {
@@ -583,5 +610,39 @@ mod tests {
             !result.contains("  "),
             "collapsed text must not contain doubled spaces across chunk splits"
         );
+    }
+
+    #[test]
+    fn watermark_embeds_in_content_not_title() {
+        let id = 0x1122_3344_5566_7788;
+        let html = "<html><head><title>T</title></head><body><p>real content here</p></body></html>";
+        let config = ObfuscationConfig {
+            seed: Some(42),
+            watermark: Some(id),
+            encode_text_entities: false,
+            randomize_tag_case: false,
+            rename_classes: false,
+            rename_ids: false,
+            ..Default::default()
+        };
+        let symbols = SymbolMap::new(Some(42));
+        let result = transform(html, &symbols, &config).unwrap();
+        assert!(result.contains("<title>T</title>"), "title must stay clean: {result}");
+        assert_eq!(watermark::decode(&result), Some(id), "id must be recoverable");
+    }
+
+    #[test]
+    fn ai_opt_out_injects_meta_into_head() {
+        let html = "<html><head><title>t</title></head><body><p>x</p></body></html>";
+        let config = ObfuscationConfig {
+            seed: Some(42),
+            emit_ai_opt_out: true,
+            randomize_tag_case: false,
+            ..Default::default()
+        };
+        let symbols = SymbolMap::new(Some(42));
+        let result = transform(html, &symbols, &config).unwrap();
+        assert!(result.contains(r#"<meta name="robots" content="noai, noimageai">"#));
+        assert!(result.contains(r#"<meta name="tdm-reservation" content="1">"#));
     }
 }

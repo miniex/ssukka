@@ -41,9 +41,12 @@ struct CliOptions {
     js_encoding: Option<JsStringEncoding>,
     js_ast: bool,
     mangle: bool,
+    poison_names: bool,
     cff: bool,
     dead_code: bool,
     dead_code_threshold: Option<f32>,
+    watermark: Option<u64>,
+    ai_opt_out: bool,
     inline_local: bool,
     base_dir: Option<String>,
     help: bool,
@@ -66,9 +69,12 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
         js_encoding: None,
         js_ast: false,
         mangle: false,
+        poison_names: false,
         cff: false,
         dead_code: false,
         dead_code_threshold: None,
+        watermark: None,
+        ai_opt_out: false,
         inline_local: false,
         base_dir: None,
         help: false,
@@ -138,6 +144,7 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
             },
             "--js-ast" => opts.js_ast = true,
             "--mangle" => opts.mangle = true,
+            "--poison-names" => opts.poison_names = true,
             "--cff" => opts.cff = true,
             "--dead-code" => opts.dead_code = true,
             "--dead-code-threshold" => {
@@ -151,6 +158,18 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
                         .map_err(|_| format!("invalid threshold: {}", args[i]))?,
                 );
             },
+            "--watermark" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("missing argument for --watermark".into());
+                }
+                opts.watermark = Some(
+                    args[i]
+                        .parse::<u64>()
+                        .map_err(|_| format!("invalid watermark id: {}", args[i]))?,
+                );
+            },
+            "--ai-opt-out" => opts.ai_opt_out = true,
             "--inline-local-resources" => opts.inline_local = true,
             "--base-dir" => {
                 i += 1;
@@ -220,6 +239,9 @@ fn run(opts: CliOptions) -> std::result::Result<(), Box<dyn std::error::Error>> 
     if opts.mangle {
         builder = builder.js_ast(true).mangle_identifiers(true);
     }
+    if opts.poison_names {
+        builder = builder.js_ast(true).poison_names(true);
+    }
     if opts.cff {
         builder = builder.js_ast(true).control_flow_flattening(true);
     }
@@ -228,6 +250,12 @@ fn run(opts: CliOptions) -> std::result::Result<(), Box<dyn std::error::Error>> 
     }
     if let Some(t) = opts.dead_code_threshold {
         builder = builder.dead_code_threshold(t);
+    }
+    if let Some(id) = opts.watermark {
+        builder = builder.watermark(id);
+    }
+    if opts.ai_opt_out {
+        builder = builder.emit_ai_opt_out(true);
     }
     if opts.inline_local {
         builder = builder.inline_local_resources(true);
@@ -246,6 +274,8 @@ fn run(opts: CliOptions) -> std::result::Result<(), Box<dyn std::error::Error>> 
         builder = builder.seed(seed);
     }
 
+    warn_aggressive(&opts);
+
     let obfuscator = builder.build();
     let result = obfuscator.obfuscate(&html)?;
 
@@ -259,6 +289,24 @@ fn run(opts: CliOptions) -> std::result::Result<(), Box<dyn std::error::Error>> 
     }
 
     Ok(())
+}
+
+/// Print stderr warnings for options that change the DOM, accessibility, or SEO,
+/// naming the affected consumer so the cost is never silent.
+fn warn_aggressive(opts: &CliOptions) {
+    let mut warnings: Vec<&str> = Vec::new();
+    if opts.structural {
+        warnings.push("--structural hides text behind JS: no-JS clients and most AI crawlers see empty nodes, and SEO/accessibility degrade until the restore script runs");
+    }
+    if opts.watermark.is_some() {
+        warnings.push("--watermark embeds invisible zero-width characters, which can affect screen readers and programmatic text matching");
+    }
+    if opts.honeypots.is_some() {
+        warnings.push("--honeypots injects hidden decoy nodes into the DOM");
+    }
+    for w in &warnings {
+        eprintln!("ssukka: warning: {w}");
+    }
 }
 
 fn print_usage() {
@@ -291,9 +339,12 @@ OPTIONS:
     --polymorphic            Randomize transforms per run (no fixed seed)
     --js-ast                 Use the oxc AST engine for <script> JS
     --mangle                 Scope-aware local identifier renaming (implies --js-ast)
+    --poison-names           Rename locals to misleading names (implies --js-ast)
     --cff                    Control-flow flattening (implies --js-ast)
     --dead-code              Opaque-predicate dead code injection (implies --js-ast)
     --dead-code-threshold <0..1>   Fraction of sites that get dead code
+    --watermark <N>          Embed an invisible zero-width id for provenance
+    --ai-opt-out             Inject <meta> AI opt-out signals into <head>
     --inline-local-resources Inline local <link>/<script src> (offline only)
     --base-dir <DIR>         Base directory for resolving local resources
 

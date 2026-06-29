@@ -58,12 +58,25 @@ pub struct ObfuscationConfig {
     pub js_ast: bool,
     /// Scope-aware renaming of local JS bindings (requires [`Self::js_ast`]).
     pub mangle_identifiers: bool,
+    /// Rename local JS bindings to plausible-but-misleading names instead of
+    /// short ones, to mislead LLM cleanup passes (requires [`Self::js_ast`]).
+    pub poison_names: bool,
     /// Flatten sequential control flow into a switch dispatcher (requires AST).
     pub control_flow_flattening: bool,
     /// Inject opaque-predicate-guarded dead code (requires AST).
     pub dead_code_injection: bool,
     /// Fraction (0.0..=1.0) of eligible sites that receive dead code.
     pub dead_code_threshold: f32,
+
+    // Watermark / provenance (opt-in)
+    /// Embed this id once as invisible zero-width characters in the text, so a
+    /// scraped/leaked copy can be traced. May affect screen readers.
+    pub watermark: Option<u64>,
+
+    // Machine-readable AI opt-out (opt-in)
+    /// Inject `<meta>` opt-out signals (`robots: noai`, TDM reservation) into
+    /// `<head>`. A polite, legally-recognized signal; widely ignored on its own.
+    pub emit_ai_opt_out: bool,
 
     // External resources (opt-in, local files only, stays offline)
     /// Inline and obfuscate `<link rel=stylesheet>` / `<script src>` whose URL
@@ -108,9 +121,13 @@ impl Default for ObfuscationConfig {
 
             js_ast: false,
             mangle_identifiers: false,
+            poison_names: false,
             control_flow_flattening: false,
             dead_code_injection: false,
             dead_code_threshold: 0.4,
+
+            watermark: None,
+            emit_ai_opt_out: false,
 
             inline_local_resources: false,
             base_dir: None,
@@ -126,6 +143,7 @@ impl ObfuscationConfig {
     pub fn wants_ast(&self) -> bool {
         self.js_ast
             && (self.mangle_identifiers
+                || self.poison_names
                 || self.control_flow_flattening
                 || self.dead_code_injection
                 || self.js_string_encoding == JsStringEncoding::Array)

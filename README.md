@@ -27,10 +27,13 @@ These change the DOM, output size, runtime cost, or accessibility, so they are *
 - **Structural obfuscation** (`--structural`) - move visible text out of the static markup into base64 `data-` attributes, restored client-side by an injected script. Resists static scrapers (curl / readability extractors that don't run JS) while rendering identically. Warning: breaks no-JS, SEO, and degrades accessibility.
 - **AST JS engine** (`--js-ast`, powered by [oxc](https://github.com/oxc-project/oxc)):
   - **Identifier mangling** (`--mangle`) - scope-aware renaming of _local_ JS bindings (never globals, so cross-script / inline-handler references stay intact).
+  - **Poison names** (`--poison-names`) - rename _local_ bindings to plausible-but-misleading words (`cursor`, `vertex`, ...) instead of short ones, so an LLM "clean this up" pass anchors on names it keeps rather than re-deriving the originals. Each name is unique and avoids every identifier already in the script, so nothing is shadowed.
   - **String array** (`--js-string-encoding array`) - hoist string literals into a base64 array decoded at runtime.
   - **Dead code injection** (`--dead-code`) - opaque-predicate-guarded junk that never executes.
   - **Control-flow flattening** (`--cff`) - reshape sequential logic into a shuffled `switch` dispatcher.
 - **Polymorphic mode** (`--polymorphic`) - vary which transforms run (and how) on every invocation, so identical input yields structurally different output each time (signature/cache evasion).
+- **Watermark** (`--watermark <N>`) - embed a build/recipient id as invisible zero-width characters in the body text, so a scraped or leaked copy can be traced. Renders invisibly and survives copy-paste; may affect screen readers.
+- **AI opt-out signals** (`--ai-opt-out`) - inject `<meta>` opt-out tags (`robots: noai`, TDM reservation) into `<head>`. A polite, legally recognized signal that bulk crawlers widely ignore on its own; pair it with the in-content deterrents above.
 - **WASM build** - runs in the browser / Cloudflare Workers / Deno via the `wasm` feature.
 
 Every AST transform re-parses its own output and is discarded if it would emit invalid JavaScript; on a parse failure the engine falls back to the token-based path. The transforms are semantics-preserving by construction (verified by executing obfuscated output under Node).
@@ -39,7 +42,7 @@ Every AST transform re-parses its own output and is discarded if it would emit i
 
 ssukka raises the **cost** of reading and scraping a page; it is **not a security boundary**. Anything the browser can render, a determined adversary with a headless browser can recover. Use it to deter casual copying and cheap bulk scraping, not to protect secrets.
 
-Modern LLM-based deobfuscators can reverse simple identifier renaming and string encoding, so the strongest configurations **layer** transforms (string array + mangling + structural + honeypots) and lean on structural/visual approaches rather than renaming alone. Benchmark the presets with `cargo bench`.
+Modern LLM-based deobfuscators can reverse simple identifier renaming and string encoding, so the strongest configurations **layer** transforms (string array + mangling + structural + honeypots) and lean on structural/visual approaches rather than renaming alone. Where renaming is used, `--poison-names` turns it from a no-op (an LLM just re-derives meaningful names) into a trap that anchors the cleanup pass on misleading names. Benchmark the presets with `cargo bench`.
 
 ## Offline by design
 
@@ -103,9 +106,12 @@ ssukka -i input.html -o output.html --seed 42 --no-rename --no-minify-css
 | `--polymorphic` | Randomize transforms per run (ignored with `--seed`) |
 | `--js-ast` | Use the oxc AST engine for `<script>` JS |
 | `--mangle` | Scope-aware local identifier renaming (implies `--js-ast`) |
+| `--poison-names` | Rename locals to misleading names (implies `--js-ast`) |
 | `--cff` | Control-flow flattening (implies `--js-ast`) |
 | `--dead-code` | Opaque-predicate dead code injection (implies `--js-ast`) |
 | `--dead-code-threshold <0..1>` | Fraction of sites that receive dead code |
+| `--watermark <N>` | Embed an invisible zero-width id for provenance |
+| `--ai-opt-out` | Inject `<meta>` AI opt-out signals into `<head>` |
 | `--inline-local-resources` | Inline local `<link>`/`<script src>` (offline only) |
 | `--base-dir <DIR>` | Base directory for resolving local resources |
 
@@ -163,6 +169,19 @@ Exposes `obfuscate(html)`, `obfuscate_seeded(html, seed)`, and `obfuscate_max(ht
 - AST control-flow flattening is conservative: it only flattens top-level sequences of simple expression statements (anything with declarations or control flow is left as-is to guarantee correctness).
 - External stylesheets/scripts are only processed with `--inline-local-resources` and only from the local filesystem.
 - Obfuscation is a deterrent, not security - see [Threat model](#threat-model).
+
+## SEO, accessibility, and legal
+
+ssukka renders identically for every client and never branches on user-agent or IP, so it is **not cloaking** - unlike tools that serve different content to bots. What it does and does not stop:
+
+- **Stops** no-JS bulk fetchers and casual copy/paste. Most large AI-training crawlers (GPTBot, ClaudeBot, CCBot, and similar) do not execute JavaScript, so `--structural` content stays empty for them.
+- **Does not stop** any client that renders JavaScript: headless browsers, on-demand "read this URL" agents, and Google/Gemini all run the restore script and recover the text.
+
+When using the aggressive layers, keep these costs in mind:
+
+- **SEO** - `--structural` moves text behind JS. Search engines that render JS (Google) usually recover it on a delayed pass, but unreliable or non-rendering crawlers index an empty shell. Keep SEO-critical copy in the static markup or provide a `<noscript>` fallback.
+- **Accessibility** - `--structural` text is absent from the accessibility tree until the restore script runs; `--watermark` adds zero-width characters that some screen readers announce and that break programmatic text matching. Never apply these to content that must be reliably read by assistive tech. The CLI prints a stderr `warning:` for each aggressive option.
+- **Legal** - `--ai-opt-out` emits the machine-readable signals (robots `noai`, TDM reservation) that are the rising, legally-backed opt-out lever; they are widely ignored on their own, so treat them as complementary to the in-content deterrents, not a replacement.
 
 ## Development
 

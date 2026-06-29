@@ -4,6 +4,13 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic 
 
 ## [Unreleased]
 
+### Added
+
+- **Poison names** (`--poison-names`, `poison_names(true)`): rename local JS bindings to plausible-but-misleading dictionary words (via the oxc mangler's debug slots, relabelled AST-safely) instead of short/base54 names, so an LLM "clean this up" pass anchors on names it keeps. Each slot gets a unique word that avoids every identifier already in the script, so no global/member/kept name is shadowed; verified semantics-preserving under Node. Implies `--js-ast`. (`src/js_ast.rs`)
+- **Watermark** (`--watermark <N>`, `watermark(id)`): embed a 64-bit id once as invisible zero-width characters in the first eligible body text node, so a scraped/leaked copy can be traced. Renders invisibly and survives copy-paste; scoped to content (never `<title>`/metadata) and recoverable via `watermark::decode`. (`src/watermark.rs`, `src/transform.rs`)
+- **AI opt-out signals** (`--ai-opt-out`, `emit_ai_opt_out(true)`): inject `<meta>` opt-out tags (`robots: noai, noimageai` and TDM reservation) into `<head>`. (`src/transform.rs`)
+- **CLI warning channel**: aggressive options (`--structural`, `--watermark`, `--honeypots`) now print a stderr `warning:` naming the affected consumer (SEO/accessibility). (`src/main.rs`)
+
 ### Fixed
 
 - **Whitespace collapse no longer doubles spaces at text-node splits.** lol_html may split one text node into chunks; collapsing each independently could emit two spaces where a whitespace run straddled the split ([lol-html#255](https://github.com/cloudflare/lol-html/issues/255)). General text is now buffered and collapsed once. (`src/transform.rs`)

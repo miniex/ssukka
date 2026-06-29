@@ -11,6 +11,7 @@ pub mod obfuscator;
 pub mod structural;
 pub mod symbol_map;
 pub mod transform;
+pub mod watermark;
 
 #[cfg(feature = "wasm")]
 pub mod wasm;
