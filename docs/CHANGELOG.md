@@ -19,6 +19,7 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic 
 
 ### Changed
 
+- **Honeypots are stripped on load instead of lingering in the DOM.** Each decoy now carries a random marker attribute and an injected script removes them on load, so JS clients (real users, JS-rendering scrapers) end up with a clean DOM and no honeypot signature to fingerprint, while no-JS bulk crawlers still ingest the decoys from the raw HTML. (`src/honeypot.rs`, `src/transform.rs`)
 - **Structural obfuscation encoding is now polymorphic.** The fixed `data-ssk` + plain-base64 scheme (a published, generically-decodable signature) is replaced by a per-document `Scheme`: a random `data-*` attribute name, a cyclic XOR key, and an optional byte reverse, all baked into the matching restore script. No single static decoder recipe works across builds; verified semantics-preserving (incl. multibyte UTF-8) under Node. (`src/structural.rs`, `src/transform.rs`)
 - **Attribute reordering is now gzip/brotli-friendly.** The per-element random shuffle is replaced by a document-stable order (FNV-1a of the name salted per document; deterministic under `--seed`). Output still differs from source, but identical tag shapes serialize identically. Seeded output bytes differ from 0.2.1. (`src/html/tags.rs`, `src/transform.rs`)
 

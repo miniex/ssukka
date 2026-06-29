@@ -64,6 +64,11 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         .structural_obfuscation
         .then(|| structural::Scheme::new(&mut rng.borrow_mut()));
 
+    // Honeypot decoys with a random marker, stripped on load by a removal script.
+    let honeypots = config
+        .inject_honeypots
+        .then(|| honeypot::Honeypots::new(&mut rng.borrow_mut()));
+
     let remove_comments = config.remove_comments;
     let collapse_ws = config.collapse_whitespace;
     let encode_text = config.encode_text_entities;
@@ -368,10 +373,13 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     // Inject honeypots and the structural-restore script at the end of <body>.
     if inject_honeypots || structural_obf {
         element_handlers.push(element!("body", |el| {
-            if inject_honeypots {
-                let mut rng = rng.borrow_mut();
-                let decoys = honeypot::generate(honeypot_count, &mut rng);
+            if let Some(hp) = &honeypots {
+                let decoys = {
+                    let mut r = rng.borrow_mut();
+                    hp.generate(honeypot_count, &mut r)
+                };
                 el.append(&decoys, ContentType::Html);
+                el.append(&hp.removal_script(), ContentType::Html);
             }
             if let Some(scheme) = &structural_scheme {
                 el.append(&scheme.restore_script(), ContentType::Html);

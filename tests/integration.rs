@@ -248,6 +248,8 @@ fn honeypots_are_injected_and_hidden() {
     assert_eq!(result.matches("aria-hidden=\"true\"").count(), 5);
     assert!(result.contains("display:none"));
     assert!(result.contains("tabindex=\"-1\""));
+    // A removal script strips them for JS clients, leaving no signature.
+    assert!(result.contains("e.remove()"));
 }
 
 #[test]
