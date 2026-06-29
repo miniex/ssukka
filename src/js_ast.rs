@@ -109,68 +109,67 @@ fn parses_ok(js: &str) -> bool {
     false
 }
 
-/// Standard base64 (RFC 4648).
-fn base64(input: &[u8]) -> String {
-    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
-    for c in input.chunks(3) {
-        let b = [c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0)];
-        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
-        out.push(A[((n >> 18) & 63) as usize] as char);
-        out.push(A[((n >> 12) & 63) as usize] as char);
-        out.push(if c.len() > 1 {
-            A[((n >> 6) & 63) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if c.len() > 2 { A[(n & 63) as usize] as char } else { '=' });
-    }
-    out
-}
-
 /// Random lowercase identifier suffix.
 fn rand_id(rng: &mut StdRng, len: usize) -> String {
     const CH: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
     (0..len).map(|_| CH[rng.random_range(0..CH.len())] as char).collect()
 }
 
-/// Hoist string-literal *expressions* into a base64 array decoded at runtime.
+/// Hoist string-literal *expressions* into a per-build character pool decoded by
+/// index, so there is no `atob` / `fromCharCode` / `TextDecoder` and no base64
+/// array for a hook-based deobfuscator to latch onto. A tool that *executes* the
+/// decoder still recovers the strings (the documented threat boundary).
 ///
-/// Only `Expression::StringLiteral` nodes are rewritten, so property keys,
-/// directives (`"use strict"`), and import/export sources, which are not
-/// expression nodes, are left untouched. Returns `None` if there is nothing to
-/// do or if the rewrite would not re-parse.
+/// Only `StringLiteral` expressions are rewritten (property keys, directives, and
+/// import sources stay untouched). `None` if nothing to do or it won't re-parse.
 fn string_array_pass(js: &str, rng: &mut StdRng) -> Option<String> {
     let spans = collect_string_expr_spans(js)?;
     if spans.len() < 2 {
         return None;
     }
 
-    let arr = format!("_{}", rand_id(rng, 6));
+    // Distinct UTF-16 code units across all values, shuffled per build.
+    let mut seen = HashSet::new();
+    let mut pool: Vec<u16> = Vec::new();
+    for (_, _, raw) in &spans {
+        for u in raw.encode_utf16() {
+            if seen.insert(u) {
+                pool.push(u);
+            }
+        }
+    }
+    for i in (1..pool.len()).rev() {
+        let j = rng.random_range(0..=i);
+        pool.swap(i, j);
+    }
+    let pool_idx: HashMap<u16, usize> = pool.iter().enumerate().map(|(i, u)| (*u, i)).collect();
+
+    let offset = rng.random_range(1u32..=9999) as usize;
+    let pool_var = format!("_{}", rand_id(rng, 6));
     let dec = format!("_{}", rand_id(rng, 6));
 
     // Splice from the end so earlier byte offsets stay valid.
     let mut out = js.to_owned();
-    let mut values: Vec<(usize, String)> = Vec::with_capacity(spans.len());
-    for (idx, (start, end, raw)) in spans.iter().enumerate().rev() {
-        values.push((idx, raw.clone()));
-        out.replace_range(*start..*end, &format!("{dec}({idx})"));
+    for (start, end, raw) in spans.iter().rev() {
+        let indices: Vec<String> = raw
+            .encode_utf16()
+            .map(|u| (pool_idx[&u] + offset).to_string())
+            .collect();
+        out.replace_range(*start..*end, &format!("{dec}([{}])", indices.join(",")));
     }
-    values.reverse();
 
-    let mut prelude = format!("const {arr}=[");
-    for (i, (_, raw)) in values.iter().enumerate() {
-        if i > 0 {
-            prelude.push(',');
-        }
-        prelude.push('"');
-        prelude.push_str(&base64(raw.as_bytes()));
-        prelude.push('"');
+    // Pool as a string literal; every unit escaped so any content is safe.
+    let mut pool_lit = String::with_capacity(pool.len() * 6 + 2);
+    pool_lit.push('"');
+    for u in &pool {
+        pool_lit.push_str(&format!("\\u{u:04x}"));
     }
-    prelude.push_str(&format!(
-        "];function {dec}(i){{var s=atob({arr}[i]),a=new Uint8Array(s.length);\
-for(var j=0;j<s.length;j++)a[j]=s.charCodeAt(j);return new TextDecoder().decode(a);}}"
-    ));
+    pool_lit.push('"');
+
+    let prelude = format!(
+        "const {pool_var}={pool_lit};function {dec}(a){{var s=\"\";\
+for(var k=0;k<a.length;k++)s+={pool_var}[a[k]-{offset}];return s;}}"
+    );
 
     let result = format!("{prelude}{out}");
     parses_ok(&result).then_some(result)
@@ -446,7 +445,11 @@ mod tests {
         let src = r#"var a="hello world"; var b="second string"; console.log(a,b);"#;
         let out = string_array_pass(src, &mut rng).unwrap();
         assert!(!out.contains("hello world"));
-        assert!(out.contains("atob"));
+        assert!(!out.contains("second string"));
+        // Anti-hook: no standard decode primitives for a deobfuscator to latch onto.
+        assert!(!out.contains("atob"));
+        assert!(!out.contains("fromCharCode"));
+        assert!(!out.contains("TextDecoder"));
         assert!(parses_ok(&out));
     }
 

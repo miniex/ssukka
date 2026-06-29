@@ -28,7 +28,7 @@ These change the DOM, output size, runtime cost, or accessibility, so they are *
 - **AST JS engine** (`--js-ast`, powered by [oxc](https://github.com/oxc-project/oxc)):
   - **Identifier mangling** (`--mangle`) - scope-aware renaming of _local_ JS bindings (never globals, so cross-script / inline-handler references stay intact).
   - **Poison names** (`--poison-names`) - rename _local_ bindings to plausible-but-misleading words (`cursor`, `vertex`, ...) instead of short ones, so an LLM "clean this up" pass anchors on names it keeps rather than re-deriving the originals. Each name is unique and avoids every identifier already in the script, so nothing is shadowed.
-  - **String array** (`--js-string-encoding array`) - hoist string literals into a base64 array decoded at runtime.
+  - **String array** (`--js-string-encoding array`) - hoist string literals into a per-build shuffled character pool, decoded by (offset-shifted) index at runtime. Uses no `atob` / `String.fromCharCode` / `TextDecoder`, so hook-based deobfuscators have nothing to latch onto (a tool that _executes_ the decoder still recovers the strings).
   - **Dead code injection** (`--dead-code`) - opaque-predicate-guarded junk that never executes.
   - **Control-flow flattening** (`--cff`) - reshape sequential logic into a shuffled `switch` dispatcher.
 - **Polymorphic mode** (`--polymorphic`) - vary which transforms run (and how) on every invocation, so identical input yields structurally different output each time (signature/cache evasion).

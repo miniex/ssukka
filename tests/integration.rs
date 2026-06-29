@@ -317,7 +317,9 @@ fn ast_string_array_hides_literals() {
         .unwrap();
     assert!(!result.contains("first secret"));
     assert!(!result.contains("second secret"));
-    assert!(result.contains("atob"));
+    // Anti-hook decoder: no standard decode primitives to latch onto.
+    assert!(!result.contains("atob"));
+    assert!(!result.contains("fromCharCode"));
 }
 
 #[test]
