@@ -10,13 +10,13 @@ HTML obfuscation library and CLI for Rust. Renders identically in browsers but i
 
 - **Class/ID renaming** - consistent across HTML, CSS, and JavaScript (including dynamic construction patterns)
 - **HTML entity encoding** - text and attribute values encoded as decimal/hex/named entities
-- **Tag case randomization** - `<div>` becomes `<DiV>`
-- **Attribute shuffling** - randomized attribute order
+- **Tag case randomization** - `<div>` becomes `<DiV>` (skipped inside `<svg>`/`<math>`, whose names are case-sensitive)
+- **Attribute reordering** - document-stable, seed-derived order: differs from source yet keeps output gzip/brotli-friendly
 - **CSS minification** - via [lightningcss](https://github.com/parcel-bundler/lightningcss)
 - **CSS selector unicode escaping** - `.foo` becomes `.\66\6f\6f`
 - **JS string encoding** - string literals encoded with a randomized mix of `\xHH` / `\uXXXX` / `\u{..}` (strict-mode-safe)
 - **JS minification** - comment removal and whitespace compression
-- **Comment removal** and **whitespace collapsing**
+- **Comment removal** and **whitespace collapsing** - IE conditional comments are preserved
 - **Deterministic output** - seed-based RNG for reproducible results
 
 ### Advanced (opt-in)
@@ -95,7 +95,7 @@ ssukka -i input.html -o output.html --seed 42 --no-rename --no-minify-css
 | `--no-minify-css` | Disable CSS minification |
 | `--no-minify-js` | Disable JS minification |
 | `--no-encode-entities` | Disable entity encoding |
-| `--no-shuffle-attrs` | Disable attribute shuffling |
+| `--no-shuffle-attrs` | Disable attribute reordering |
 | `--no-randomize-case` | Disable tag case randomization |
 | `--js-string-encoding <none\|escapes\|array>` | JS string strategy (default: `escapes`) |
 | `--honeypots <N>` | Inject N invisible decoy nodes (scraper traps) |

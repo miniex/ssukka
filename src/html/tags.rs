@@ -16,16 +16,23 @@ pub fn randomize_tag_case(tag: &str, rng: &mut StdRng) -> String {
         .collect()
 }
 
-/// Shuffle the order of attributes in an element.
+/// Reorder attributes by a per-document salted key.
 ///
-/// Takes a list of (name, value) pairs and returns them in random order.
-pub fn shuffle_attributes(attrs: &mut [(String, String)], rng: &mut StdRng) {
-    // Fisher-Yates shuffle
-    let len = attrs.len();
-    for i in (1..len).rev() {
-        let j = rng.random_range(0..=i);
-        attrs.swap(i, j);
+/// Sorting by `key(salt, name)` differs from source order yet is identical for
+/// any two elements sharing an attribute set, so repeated tag shapes still
+/// compress (a per-element random shuffle would defeat gzip).
+pub fn shuffle_attributes(attrs: &mut [(String, String)], salt: u64) {
+    attrs.sort_by_key(|(name, _)| attr_order_key(name, salt));
+}
+
+/// Stable per-name ordering key: FNV-1a hash of `name` salted with `salt`.
+fn attr_order_key(name: &str, salt: u64) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325_u64 ^ salt;
+    for b in name.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
+    h
 }
 
 #[cfg(test)]
@@ -42,8 +49,7 @@ mod tests {
     }
 
     #[test]
-    fn attribute_shuffle() {
-        let mut rng = StdRng::seed_from_u64(42);
+    fn attribute_shuffle_preserves_set() {
         let mut attrs = vec![
             ("a".into(), "1".into()),
             ("b".into(), "2".into()),
@@ -51,11 +57,25 @@ mod tests {
             ("d".into(), "4".into()),
         ];
         let original: Vec<_> = attrs.clone();
-        shuffle_attributes(&mut attrs, &mut rng);
+        shuffle_attributes(&mut attrs, 0xdead_beef);
         assert_eq!(attrs.len(), original.len());
         for item in &original {
             assert!(attrs.contains(item));
         }
+    }
+
+    #[test]
+    fn attribute_order_is_document_stable() {
+        // Two elements sharing attribute names must reorder identically under
+        // the same salt, so repeated tag shapes still compress.
+        let salt = 0x1234_5678;
+        let mut a = vec![("class".into(), "x".into()), ("id".into(), "y".into())];
+        let mut b = vec![("class".into(), "p".into()), ("id".into(), "q".into())];
+        shuffle_attributes(&mut a, salt);
+        shuffle_attributes(&mut b, salt);
+        let names_a: Vec<&String> = a.iter().map(|(n, _)| n).collect();
+        let names_b: Vec<&String> = b.iter().map(|(n, _)| n).collect();
+        assert_eq!(names_a, names_b);
     }
 
     #[test]

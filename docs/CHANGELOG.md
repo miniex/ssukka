@@ -2,6 +2,18 @@
 
 Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Whitespace collapse no longer doubles spaces at text-node splits.** lol_html may split one text node into chunks; collapsing each independently could emit two spaces where a whitespace run straddled the split ([lol-html#255](https://github.com/cloudflare/lol-html/issues/255)). General text is now buffered and collapsed once. (`src/transform.rs`)
+- **IE conditional comments are preserved.** `remove_comments` also stripped `<!--[if ...]>...<![endif]-->`, which can change downlevel rendering; such comments are now kept. (`src/transform.rs`)
+- **SVG/MathML names are no longer corrupted.** Inside `<svg>`/`<math>`, tag-case randomization and attribute encoding/reordering are skipped — each rewrites names through lol_html's lowercased `name()`, breaking case-sensitive names like SVG `viewBox`/`linearGradient`. (`src/transform.rs`)
+
+### Changed
+
+- **Attribute reordering is now gzip/brotli-friendly.** The per-element random shuffle is replaced by a document-stable order (FNV-1a of the name salted per document; deterministic under `--seed`). Output still differs from source, but identical tag shapes serialize identically. Seeded output bytes differ from 0.2.1. (`src/html/tags.rs`, `src/transform.rs`)
+
 ## [0.2.1] - 2026-06-20
 
 ### Fixed
