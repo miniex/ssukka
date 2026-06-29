@@ -107,6 +107,11 @@ impl ObfuscatorBuilder {
         self
     }
 
+    pub fn split_words(mut self, v: bool) -> Self {
+        self.config.split_words = v;
+        self
+    }
+
     pub fn rename_classes(mut self, v: bool) -> Self {
         self.config.rename_classes = v;
         self
@@ -191,6 +196,11 @@ impl ObfuscatorBuilder {
 
     pub fn dead_code_threshold(mut self, t: f32) -> Self {
         self.config.dead_code_threshold = t.clamp(0.0, 1.0);
+        self
+    }
+
+    pub fn self_defending(mut self, v: bool) -> Self {
+        self.config.self_defending = v;
         self
     }
 

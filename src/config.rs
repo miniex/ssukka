@@ -29,6 +29,9 @@ pub struct ObfuscationConfig {
     pub encode_attr_entities: bool,
     pub shuffle_attributes: bool,
     pub randomize_tag_case: bool,
+    /// Insert empty comments inside long words so naive raw-HTML scrapers see
+    /// fragmented text; browsers and content extractors read it intact. Opt-in.
+    pub split_words: bool,
 
     // CSS (cosmetic, on by default)
     pub rename_classes: bool,
@@ -67,6 +70,9 @@ pub struct ObfuscationConfig {
     pub dead_code_injection: bool,
     /// Fraction (0.0..=1.0) of eligible sites that receive dead code.
     pub dead_code_threshold: f32,
+    /// Inject a self-check that disables `console` if the emitted script was
+    /// beautified/tampered (deters casual beautify-and-run; requires AST).
+    pub self_defending: bool,
 
     // Watermark / provenance (opt-in)
     /// Embed this id once as invisible zero-width characters in the text, so a
@@ -105,6 +111,7 @@ impl Default for ObfuscationConfig {
             encode_attr_entities: true,
             shuffle_attributes: true,
             randomize_tag_case: true,
+            split_words: false,
 
             rename_classes: true,
             rename_ids: true,
@@ -125,6 +132,7 @@ impl Default for ObfuscationConfig {
             control_flow_flattening: false,
             dead_code_injection: false,
             dead_code_threshold: 0.4,
+            self_defending: false,
 
             watermark: None,
             emit_ai_opt_out: false,
@@ -146,6 +154,7 @@ impl ObfuscationConfig {
                 || self.poison_names
                 || self.control_flow_flattening
                 || self.dead_code_injection
+                || self.self_defending
                 || self.js_string_encoding == JsStringEncoding::Array)
     }
 }

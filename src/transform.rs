@@ -10,6 +10,7 @@ use crate::js_ast;
 use crate::structural;
 use crate::symbol_map::SymbolMap;
 use crate::watermark;
+use crate::word_split;
 use lol_html::html_content::ContentType;
 use lol_html::{doc_comments, element, text, HtmlRewriter, Settings};
 use rand::rngs::StdRng;
@@ -75,6 +76,7 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     let encode_attrs = config.encode_attr_entities;
     let shuffle_attrs = config.shuffle_attributes;
     let randomize_case = config.randomize_tag_case;
+    let split_words = config.split_words;
     let rename_classes = config.rename_classes;
     let rename_ids = config.rename_ids;
     let minify_css = config.minify_css;
@@ -175,8 +177,8 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
 
         // Maintain the open-element stack (only for elements that have an end
         // tag, keeping it balanced regardless of void/self-closing elements).
-        // Needed to scope structural relocation and the watermark to content.
-        if structural_obf || watermark_id.is_some() {
+        // Scopes structural relocation, the watermark, and word-splitting to content.
+        if structural_obf || watermark_id.is_some() || split_words {
             if let Some(handlers) = el.end_tag_handlers() {
                 tag_stack.borrow_mut().push(tag_lower.clone());
                 let stack = Rc::clone(&tag_stack);
@@ -349,7 +351,11 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
             }
         }
 
-        if encode_text {
+        // Word-splitting (flow content only) interleaves the entity encoding so
+        // the comment marker never lands inside an entity.
+        if split_words && parent_is_safe && !is_preserved {
+            processed = word_split::split(&processed, encode_text, &mut rng.borrow_mut());
+        } else if encode_text {
             let mut rng = rng.borrow_mut();
             processed = entities::encode_entities(&processed, &mut rng);
         }

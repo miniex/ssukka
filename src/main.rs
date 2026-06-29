@@ -34,6 +34,7 @@ struct CliOptions {
     no_encode_entities: bool,
     no_shuffle_attrs: bool,
     no_randomize_case: bool,
+    comment_split: bool,
     seed: Option<u64>,
     honeypots: Option<usize>,
     structural: bool,
@@ -45,6 +46,7 @@ struct CliOptions {
     cff: bool,
     dead_code: bool,
     dead_code_threshold: Option<f32>,
+    self_defending: bool,
     watermark: Option<u64>,
     ai_opt_out: bool,
     inline_local: bool,
@@ -62,6 +64,7 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
         no_encode_entities: false,
         no_shuffle_attrs: false,
         no_randomize_case: false,
+        comment_split: false,
         seed: None,
         honeypots: None,
         structural: false,
@@ -73,6 +76,7 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
         cff: false,
         dead_code: false,
         dead_code_threshold: None,
+        self_defending: false,
         watermark: None,
         ai_opt_out: false,
         inline_local: false,
@@ -118,6 +122,7 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
             "--no-encode-entities" => opts.no_encode_entities = true,
             "--no-shuffle-attrs" => opts.no_shuffle_attrs = true,
             "--no-randomize-case" => opts.no_randomize_case = true,
+            "--comment-split" => opts.comment_split = true,
             "--honeypots" => {
                 i += 1;
                 if i >= args.len() {
@@ -147,6 +152,7 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
             "--poison-names" => opts.poison_names = true,
             "--cff" => opts.cff = true,
             "--dead-code" => opts.dead_code = true,
+            "--self-defending" => opts.self_defending = true,
             "--dead-code-threshold" => {
                 i += 1;
                 if i >= args.len() {
@@ -221,6 +227,9 @@ fn run(opts: CliOptions) -> std::result::Result<(), Box<dyn std::error::Error>> 
     if opts.no_randomize_case {
         builder = builder.randomize_tag_case(false);
     }
+    if opts.comment_split {
+        builder = builder.split_words(true);
+    }
     if let Some(n) = opts.honeypots {
         builder = builder.inject_honeypots(true).honeypot_count(n);
     }
@@ -247,6 +256,9 @@ fn run(opts: CliOptions) -> std::result::Result<(), Box<dyn std::error::Error>> 
     }
     if opts.dead_code {
         builder = builder.js_ast(true).dead_code_injection(true);
+    }
+    if opts.self_defending {
+        builder = builder.js_ast(true).self_defending(true);
     }
     if let Some(t) = opts.dead_code_threshold {
         builder = builder.dead_code_threshold(t);
@@ -334,6 +346,7 @@ OPTIONS:
                              JS string-literal strategy (default: escapes)
 
   Advanced (opt-in - change DOM/size/runtime; see README threat model):
+    --comment-split          Split long words with empty comments (anti-regex-scraper)
     --honeypots <N>          Inject N invisible decoy nodes (scraper traps)
     --structural             Move text into encoded attrs, restore client-side
     --polymorphic            Randomize transforms per run (no fixed seed)
@@ -342,6 +355,7 @@ OPTIONS:
     --poison-names           Rename locals to misleading names (implies --js-ast)
     --cff                    Control-flow flattening (implies --js-ast)
     --dead-code              Opaque-predicate dead code injection (implies --js-ast)
+    --self-defending         Disable console if the script is beautified (implies --js-ast)
     --dead-code-threshold <0..1>   Fraction of sites that get dead code
     --watermark <N>          Embed an invisible zero-width id for provenance
     --ai-opt-out             Inject <meta> AI opt-out signals into <head>

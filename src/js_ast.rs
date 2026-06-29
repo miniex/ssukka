@@ -54,6 +54,12 @@ pub fn transform(js: &str, symbols: &SymbolMap, config: &ObfuscationConfig, rng:
             code = next;
         }
     }
+    // Last, so the canary's emitted source is exactly what runs (not re-printed).
+    if config.self_defending {
+        if let Some(next) = self_defending_pass(&code, rng) {
+            code = next;
+        }
+    }
 
     Some(code)
 }
@@ -166,10 +172,13 @@ fn string_array_pass(js: &str, rng: &mut StdRng) -> Option<String> {
     }
     pool_lit.push('"');
 
-    let prelude = format!(
-        "const {pool_var}={pool_lit};function {dec}(a){{var s=\"\";\
-for(var k=0;k<a.length;k++)s+={pool_var}[a[k]-{offset}];return s;}}"
-    );
+    // Vary the decoder body per build so it isn't a fixed signature.
+    let body = match rng.random_range(0u8..3) {
+        0 => format!("var s=\"\";for(var k=0;k<a.length;k++)s+={pool_var}[a[k]-{offset}];return s;"),
+        1 => format!("return a.map(function(x){{return {pool_var}[x-{offset}];}}).join(\"\");"),
+        _ => format!("return a.reduce(function(s,x){{return s+{pool_var}[x-{offset}];}},\"\");"),
+    };
+    let prelude = format!("const {pool_var}={pool_lit};function {dec}(a){{{body}}}");
 
     let result = format!("{prelude}{out}");
     parses_ok(&result).then_some(result)
@@ -212,6 +221,34 @@ fn collect_string_expr_spans(js: &str) -> Option<Vec<(usize, usize, String)>> {
 
 /// Prepend an always-false, block-scoped junk block. The predicate (`0xNNNN <
 /// 0`) is never true and the body is `let`-scoped, so nothing leaks or runs.
+/// A provably-always-false predicate. The shape varies per call so the emitted
+/// guard isn't a fixed signature; every form is false for *any* literal.
+fn opaque_false(rng: &mut StdRng) -> String {
+    let n = rng.random_range(0x1000u32..=0xffff);
+    let m = rng.random_range(1u32..9999);
+    match rng.random_range(0u8..4) {
+        0 => format!("0x{n:x}<0"),     // a positive literal is never < 0
+        1 => format!("(0x{n:x}&0)>0"), // x & 0 == 0
+        2 => format!("({n}^{n})>{m}"), // x ^ x == 0, never > m>=1
+        _ => format!("!({n}|1)"),      // x | 1 is truthy, so !(..) is false
+    }
+}
+
+/// A self-contained junk statement that never runs (shape varies per call).
+fn junk_body(rng: &mut StdRng) -> String {
+    let a = rand_id(rng, 7);
+    let n1 = rng.random_range(0u32..9999);
+    let n2 = rng.random_range(0u32..9999);
+    match rng.random_range(0u8..3) {
+        0 => {
+            let b = rand_id(rng, 7);
+            format!("let _{a}=[{n1},{n2}];let _{b}=function(x,y){{return x^y^{n1};}};")
+        },
+        1 => format!("var _{a}={n1};while(_{a}>0){{_{a}--;}}"),
+        _ => format!("const _{a}={{k:{n1},v:{n2}}};"),
+    }
+}
+
 fn dead_code_pass(js: &str, threshold: f32, rng: &mut StdRng) -> Option<String> {
     if threshold <= 0.0 {
         return None;
@@ -219,14 +256,7 @@ fn dead_code_pass(js: &str, threshold: f32, rng: &mut StdRng) -> Option<String> 
     let count = ((threshold * 4.0).ceil() as usize).clamp(1, 6);
     let mut junk = String::new();
     for _ in 0..count {
-        let pred = rng.random_range(0x1000u32..=0xffff);
-        let a = rand_id(rng, 7);
-        let b = rand_id(rng, 7);
-        let n1 = rng.random_range(0u32..9999);
-        let n2 = rng.random_range(0u32..9999);
-        junk.push_str(&format!(
-            "if(0x{pred:x}<0){{let _{a}=[{n1},{n2}];let _{b}=function(x,y){{return x^y^{n1};}};}}"
-        ));
+        junk.push_str(&format!("if({}){{{}}}", opaque_false(rng), junk_body(rng)));
     }
     let result = format!("{junk}{js}");
     parses_ok(&result).then_some(result)
@@ -416,6 +446,39 @@ fn collect_slots_and_used(js: &str) -> Option<(Vec<SlotSpan>, HashSet<String>)> 
     None
 }
 
+/// Rolling hash mirrored from the injected `h(s)`: `v = (v*31 + code) >>> 0`.
+fn js_hash(s: &str) -> u32 {
+    let mut v: u32 = 0;
+    for u in s.encode_utf16() {
+        v = v.wrapping_mul(31).wrapping_add(u32::from(u));
+    }
+    v
+}
+
+/// Inject a self-check: a canary function whose `toString()` is hashed at load
+/// and compared to a build-time hash; if the script was beautified, the hash
+/// differs and `console` is stubbed out. Emitted verbatim so the runtime source
+/// matches the hash. Deters casual beautify-and-run; stripping the guard defeats it.
+fn self_defending_pass(js: &str, rng: &mut StdRng) -> Option<String> {
+    let kname = format!("_{}", rand_id(rng, 7));
+    let gname = format!("_{}", rand_id(rng, 7));
+    let hname = format!("_{}", rand_id(rng, 7));
+    let token = rng.random_range(100_000u32..=999_999);
+
+    // The canary's source, exactly as emitted; `kname.toString()` must hash to this.
+    let canary = format!("function {kname}(){{return {token};}}");
+    let expected = js_hash(&canary);
+
+    let guard = format!(
+        "function {hname}(s){{var v=0;for(var i=0;i<s.length;i++)v=(v*31+s.charCodeAt(i))>>>0;return v;}}\
+function {gname}(){{if({hname}({kname}.toString())!=={expected}){{console.log=console.info=console.warn=function(){{}};}}}}\
+{gname}();"
+    );
+
+    let result = format!("{canary}{guard}{js}");
+    parses_ok(&result).then_some(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -497,10 +560,28 @@ mod tests {
     }
 
     #[test]
-    fn dead_code_is_always_false_and_valid() {
-        let mut rng = StdRng::seed_from_u64(3);
-        let out = dead_code_pass("var x=1;foo(x);", 0.5, &mut rng).unwrap();
-        assert!(out.contains("if(0x"));
+    fn self_defending_embeds_matching_canary_hash() {
+        let mut rng = StdRng::seed_from_u64(5);
+        let out = self_defending_pass("foo();", &mut rng).unwrap();
         assert!(parses_ok(&out));
+        // The first function is the canary; its source must hash to the embedded
+        // expected value, so the guard does not fire on the verbatim output.
+        let start = out.find("function ").unwrap();
+        let end = out[start..].find('}').unwrap() + start + 1;
+        let expected = js_hash(&out[start..end]);
+        assert!(out.contains(&format!("!=={expected}")), "hash must match canary: {out}");
+    }
+
+    #[test]
+    fn dead_code_variants_parse_and_keep_original() {
+        // Exercise every predicate/body shape; all must parse and leave the
+        // original code intact (the junk is guarded by a false predicate).
+        for seed in 0..16u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let out = dead_code_pass("var x=1;foo(x);", 0.9, &mut rng).unwrap();
+            assert!(out.contains("if("), "{out}");
+            assert!(out.contains("foo(x)"), "original preserved: {out}");
+            assert!(parses_ok(&out), "{out}");
+        }
     }
 }

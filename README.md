@@ -29,11 +29,13 @@ These change the DOM, output size, runtime cost, or accessibility, so they are *
   - **Identifier mangling** (`--mangle`) - scope-aware renaming of _local_ JS bindings (never globals, so cross-script / inline-handler references stay intact).
   - **Poison names** (`--poison-names`) - rename _local_ bindings to plausible-but-misleading words (`cursor`, `vertex`, ...) instead of short ones, so an LLM "clean this up" pass anchors on names it keeps rather than re-deriving the originals. Each name is unique and avoids every identifier already in the script, so nothing is shadowed.
   - **String array** (`--js-string-encoding array`) - hoist string literals into a per-build shuffled character pool, decoded by (offset-shifted) index at runtime. Uses no `atob` / `String.fromCharCode` / `TextDecoder`, so hook-based deobfuscators have nothing to latch onto (a tool that _executes_ the decoder still recovers the strings).
-  - **Dead code injection** (`--dead-code`) - opaque-predicate-guarded junk that never executes.
+  - **Dead code injection** (`--dead-code`) - opaque-predicate-guarded junk that never executes; predicate and body shapes vary per build so they aren't a fixed signature.
   - **Control-flow flattening** (`--cff`) - reshape sequential logic into a shuffled `switch` dispatcher.
+  - **Self-defending** (`--self-defending`) - inject a check that disables `console` if the script was beautified or tampered with (deters casual beautify-and-run; a deobfuscator that strips the guard defeats it).
 - **Polymorphic mode** (`--polymorphic`) - vary which transforms run (and how) on every invocation, so identical input yields structurally different output each time (signature/cache evasion).
 - **Watermark** (`--watermark <N>`) - embed a build/recipient id as invisible zero-width characters in the body text, so a scraped or leaked copy can be traced. Renders invisibly and survives copy-paste; may affect screen readers.
 - **AI opt-out signals** (`--ai-opt-out`) - inject `<meta>` opt-out tags (`robots: noai`, TDM reservation) into `<head>`. A polite, legally recognized signal that bulk crawlers widely ignore on its own; pair it with the in-content deterrents above.
+- **Word splitting** (`--comment-split`) - insert empty comments inside long words so naive regex/substring scrapers see fragmented text, while browsers, screen readers, find-in-page, and content extractors read it intact. Flow content only (never `<title>` or other RCDATA).
 - **WASM build** - runs in the browser / Cloudflare Workers / Deno via the `wasm` feature.
 
 Every AST transform re-parses its own output and is discarded if it would emit invalid JavaScript; on a parse failure the engine falls back to the token-based path. The transforms are semantics-preserving by construction (verified by executing obfuscated output under Node).
@@ -100,6 +102,7 @@ ssukka -i input.html -o output.html --seed 42 --no-rename --no-minify-css
 | `--no-encode-entities` | Disable entity encoding |
 | `--no-shuffle-attrs` | Disable attribute reordering |
 | `--no-randomize-case` | Disable tag case randomization |
+| `--comment-split` | Split long words with empty comments (anti-regex-scraper) |
 | `--js-string-encoding <none\|escapes\|array>` | JS string strategy (default: `escapes`) |
 | `--honeypots <N>` | Inject N invisible decoy nodes (scraper traps) |
 | `--structural` | Move text into encoded attrs, restore client-side |
@@ -109,6 +112,7 @@ ssukka -i input.html -o output.html --seed 42 --no-rename --no-minify-css
 | `--poison-names` | Rename locals to misleading names (implies `--js-ast`) |
 | `--cff` | Control-flow flattening (implies `--js-ast`) |
 | `--dead-code` | Opaque-predicate dead code injection (implies `--js-ast`) |
+| `--self-defending` | Disable `console` if the script is beautified (implies `--js-ast`) |
 | `--dead-code-threshold <0..1>` | Fraction of sites that receive dead code |
 | `--watermark <N>` | Embed an invisible zero-width id for provenance |
 | `--ai-opt-out` | Inject `<meta>` AI opt-out signals into `<head>` |
