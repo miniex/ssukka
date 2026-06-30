@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ssukka_core", "ssukka", "ssukka-proxy", "ssukka_wasm"]
+members = ["ssukka_core", "ssukka", "ssukka-proxy", "wasm"]
 # wasm is built only for the wasm32 target (wasm-pack / -p ssukka_wasm), so a
 # plain host `cargo build`/`test` skips it.
 default-members = ["ssukka_core", "ssukka", "ssukka-proxy"]

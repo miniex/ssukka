@@ -40,7 +40,7 @@ These change the DOM, output size, runtime cost, or accessibility, so they are *
 - **Watermark** (`--watermark <N>`) - embed a build/recipient id as invisible zero-width characters in the body text, so a scraped or leaked copy can be traced. The id is scattered as redundant copies across multiple text nodes and recovered by majority vote, so it survives copy-paste and partial deletion (truncation, copying one section). Renders invisibly; may affect screen readers. Reversed only by a Unicode normalizer that strips the zero-width class.
 - **AI opt-out signals** (`--ai-opt-out`) - inject standards-aligned `<meta>` opt-out tags into `<head>`: legacy `robots: noai`, W3C **TDMRep** (`tdm-reservation`, the EU CDSM Art.4 / AI Act rights-reservation lane), and a best-effort IETF **AIPREF** `Content-Usage: train-ai=n` (`http-equiv`). The canonical AIPREF/TDMRep transports - an HTTP `Content-Usage` response header, a `robots.txt` rule, and `/.well-known/tdmrep.json` - are exposed as library helpers (`ssukka::ai_opt_out::{meta_block, robots_txt, content_usage_header, well_known_tdmrep_json}`) for edge/server deployment. A legally recognized signal that bulk crawlers widely ignore on its own; pair it with the in-content deterrents above.
 - **Word splitting** (`--comment-split`) - insert empty comments inside long words so naive regex/substring scrapers see fragmented text, while browsers, screen readers, find-in-page, and content extractors read it intact. Flow content only (never `<title>` or other RCDATA).
-- **WASM build** - runs in the browser / Cloudflare Workers / Deno via the `wasm` feature.
+- **WASM build** - runs in the browser / Cloudflare Workers / Deno via the `ssukka-wasm` crate (`wasm/`).
 
 Every AST transform re-parses its own output and is discarded if it would emit invalid JavaScript; on a parse failure the engine falls back to the token-based path. The transforms are semantics-preserving by construction (verified by executing obfuscated output under Node).
 
@@ -62,7 +62,7 @@ A Cargo workspace; the engine does no I/O, and each front-end is a thin crate ov
 ssukka_core   engine (lib): offline, forbid(unsafe). all transforms live here
 ssukka        facade lib (re-exports ssukka_core) + the CLI binary
 ssukka-proxy  serve-time reverse proxy (binary, skeleton)
-ssukka_wasm   wasm-bindgen bindings (cdylib, built for wasm32 only)
+ssukka-wasm   wasm-bindgen bindings (cdylib, built for wasm32 only)
 ```
 
 The engine is a streaming pipeline built on [lol_html](https://github.com/cloudflare/lol-html):
@@ -78,7 +78,8 @@ Input HTML
 ## Installation
 
 ```bash
-cargo install ssukka
+cargo install ssukka          # CLI
+cargo install ssukka-proxy    # serve-time reverse proxy
 ```
 
 Or build from source:
@@ -182,12 +183,27 @@ let result = ssukka::Obfuscator::builder()
 ## WASM
 
 ```bash
-wasm-pack build ssukka_wasm
+wasm-pack build wasm
 # or
-cargo build -p ssukka_wasm --release --target wasm32-unknown-unknown
+cargo build -p ssukka-wasm --release --target wasm32-unknown-unknown
 ```
 
-Exposes `obfuscate(html)`, `obfuscate_seeded(html, seed)`, `obfuscate_max(html, honeypots, seed)`, plus the AI opt-out transport helpers `content_usage_header()`, `robots_txt()`, and `well_known_tdmrep_json(policy)` so a JS/edge middleware can emit the canonical signals. The `ssukka_wasm` crate is empty off the `wasm32` target, so a host build never pulls the wasm toolchain.
+Exposes `obfuscate(html)`, `obfuscate_seeded(html, seed)`, `obfuscate_max(html, honeypots, seed)`, plus the AI opt-out transport helpers `content_usage_header()`, `robots_txt()`, and `well_known_tdmrep_json(policy)` so a JS/edge middleware can emit the canonical signals. The `ssukka-wasm` crate is empty off the `wasm32` target, so a host build never pulls the wasm toolchain. For Rust + wasm, depend on `ssukka_core` directly (pure Rust, no I/O); `ssukka-wasm` is the JS-glue layer, shipped to JS via the npm package (`wasm-pack publish`) rather than crates.io.
+
+## Serve-time integration
+
+ssukka is a pure string transform, so wire it in wherever you serve HTML - the engine stays offline; the host does the I/O.
+
+- **Build time (static sites):** run the `ssukka` CLI over your HTML before deploy.
+- **Rust server:** depend on `ssukka_core` and call `Obfuscator::builder()...obfuscate(body)` in a handler/middleware; emit the HTTP opt-out signals from `ssukka_core::ai_opt_out`.
+- **Node / edge:** use the `ssukka-wasm` module (`obfuscate`, `content_usage_header`, `robots_txt`, `well_known_tdmrep_json`).
+- **Reverse proxy (any origin):** run `ssukka-proxy`, which forwards to an HTTP origin, obfuscates HTML responses (polymorphic, per-request), stamps `Content-Usage`, and serves `/robots.txt` + `/.well-known/tdmrep.json`:
+
+  ```bash
+  ssukka-proxy --listen 0.0.0.0:8080 --origin http://127.0.0.1:3000
+  ```
+
+Docker images: `docker build -t ssukka .` (CLI), `--target ssukka-proxy` (proxy), `--target wasm -o type=local,dest=pkg .` (wasm package). `nix build .#ssukka-proxy` builds the proxy; `nix develop` has the wasm toolchain.
 
 ## Limitations
 

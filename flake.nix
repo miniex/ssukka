@@ -18,17 +18,21 @@
         rustToolchain = pkgs.rust-bin.stable."1.94.0".default.override {
           targets = [ "wasm32-unknown-unknown" ];
         };
-      in
-      {
-        packages.default = pkgs.rustPlatform.buildRustPackage {
-          pname = "ssukka";
-          version = (pkgs.lib.importTOML ./Cargo.toml).workspace.package.version;
+        version = (pkgs.lib.importTOML ./Cargo.toml).workspace.package.version;
+        # Build one workspace binary crate (doCheck off; run tests via `cargo test`).
+        mkBin = crate: pkgs.rustPlatform.buildRustPackage {
+          pname = crate;
+          inherit version;
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
-          # Build just the CLI crate (skips the wasm32-only member).
-          cargoBuildFlags = [ "-p" "ssukka" ];
-          cargoTestFlags = [ "-p" "ssukka_core" ];
+          cargoBuildFlags = [ "-p" crate ];
+          doCheck = false;
         };
+      in
+      {
+        packages.default = mkBin "ssukka";
+        packages.ssukka = mkBin "ssukka";
+        packages.ssukka-proxy = mkBin "ssukka-proxy";
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
@@ -38,6 +42,10 @@
             pkgs.shellcheck
             pkgs.taplo
             pkgs.nodejs
+            # wasm packaging (`wasm-pack build wasm`)
+            pkgs.wasm-pack
+            pkgs.wasm-bindgen-cli
+            pkgs.binaryen
           ];
         };
       }
