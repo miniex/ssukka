@@ -73,6 +73,9 @@ pub struct ObfuscationConfig {
     /// Inject a self-check that disables `console` if the emitted script was
     /// beautified/tampered (deters casual beautify-and-run; requires AST).
     pub self_defending: bool,
+    /// Replace integer literals with equivalent mixed boolean-arithmetic so an
+    /// LLM/static pass can't trivially read the constant (requires AST).
+    pub mba: bool,
 
     // Watermark / provenance (opt-in)
     /// Embed this id once as invisible zero-width characters in the text, so a
@@ -135,6 +138,7 @@ impl Default for ObfuscationConfig {
             dead_code_injection: false,
             dead_code_threshold: 0.4,
             self_defending: false,
+            mba: false,
 
             watermark: None,
             emit_ai_opt_out: false,
@@ -157,6 +161,7 @@ impl ObfuscationConfig {
                 || self.control_flow_flattening
                 || self.dead_code_injection
                 || self.self_defending
+                || self.mba
                 || self.js_string_encoding == JsStringEncoding::Array)
     }
 }

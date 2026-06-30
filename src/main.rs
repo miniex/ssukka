@@ -47,6 +47,7 @@ struct CliOptions {
     dead_code: bool,
     dead_code_threshold: Option<f32>,
     self_defending: bool,
+    mba: bool,
     watermark: Option<u64>,
     ai_opt_out: bool,
     inline_local: bool,
@@ -77,6 +78,7 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
         dead_code: false,
         dead_code_threshold: None,
         self_defending: false,
+        mba: false,
         watermark: None,
         ai_opt_out: false,
         inline_local: false,
@@ -153,6 +155,7 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
             "--cff" => opts.cff = true,
             "--dead-code" => opts.dead_code = true,
             "--self-defending" => opts.self_defending = true,
+            "--mba" => opts.mba = true,
             "--dead-code-threshold" => {
                 i += 1;
                 if i >= args.len() {
@@ -260,6 +263,9 @@ fn run(opts: CliOptions) -> std::result::Result<(), Box<dyn std::error::Error>> 
     if opts.self_defending {
         builder = builder.js_ast(true).self_defending(true);
     }
+    if opts.mba {
+        builder = builder.js_ast(true).mba(true);
+    }
     if let Some(t) = opts.dead_code_threshold {
         builder = builder.dead_code_threshold(t);
     }
@@ -356,6 +362,7 @@ OPTIONS:
     --cff                    Control-flow flattening (implies --js-ast)
     --dead-code              Opaque-predicate dead code injection (implies --js-ast)
     --self-defending         Disable console if the script is beautified (implies --js-ast)
+    --mba                    Encode integer literals as mixed boolean-arithmetic (implies --js-ast)
     --dead-code-threshold <0..1>   Fraction of sites that get dead code
     --watermark <N>          Embed an invisible zero-width id for provenance
     --ai-opt-out             Inject AI opt-out <meta> (noai + TDMRep + AIPREF) into <head>

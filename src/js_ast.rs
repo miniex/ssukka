@@ -37,6 +37,14 @@ pub fn transform(js: &str, symbols: &SymbolMap, config: &ObfuscationConfig, rng:
     // mangle + minify; None here means unparsable input, so the caller falls back.
     code = mangle_and_print(&code, config)?;
 
+    // After codegen (the printer would fold it back) and before self-defending
+    // (the canary hash must cover the final form).
+    if config.mba {
+        if let Some(next) = mba_pass(&code, rng) {
+            code = next;
+        }
+    }
+
     // Relabel the mangler's debug slots to misleading dictionary names.
     if config.poison_names {
         if let Some(next) = poison_pass(&code, rng) {
@@ -206,6 +214,73 @@ fn collect_string_expr_spans(js: &str) -> Option<Vec<(usize, usize, String)>> {
         // A non-computed string property key (`{ "k": v }`) reaches us through
         // `visit_expression`, but replacing it with a call would be invalid.
         // Skip property keys entirely (their values are still visited).
+        fn visit_property_key(&mut self, _key: &PropertyKey<'a>) {}
+    }
+
+    let allocator = Allocator::default();
+    let ret = Parser::new(&allocator, js, SourceType::cjs()).parse();
+    if ret.panicked || !ret.diagnostics.is_empty() {
+        return None;
+    }
+    let mut c = Collector { spans: Vec::new() };
+    c.visit_program(&ret.program);
+    Some(c.spans)
+}
+
+/// MBA literal bound: i32::MAX keeps operands and bitwise results non-negative
+/// int32, so the identities stay exact under JS.
+const MBA_MAX: u64 = 0x7fff_ffff;
+
+/// Replace integer literals with equivalent mixed boolean-arithmetic - exact in
+/// JS for int32-range operands: `a+b == (a^b)+2*(a&b) == (a|b)+(a&b)`. Only
+/// non-negative ints in `[2, MBA_MAX]` (numeric keys / float / out-of-range left
+/// alone). `None` if there's nothing to do or it won't re-parse.
+fn mba_pass(js: &str, rng: &mut StdRng) -> Option<String> {
+    let mut spans = collect_int_literal_spans(js)?;
+    if spans.is_empty() {
+        return None;
+    }
+    spans.sort_by_key(|&(start, _, _)| start);
+    // Splice from the end so earlier byte offsets stay valid.
+    let mut out = js.to_owned();
+    for (start, end, n) in spans.iter().rev() {
+        out.replace_range(*start..*end, &mba_encode(*n, rng));
+    }
+    parses_ok(&out).then_some(out)
+}
+
+/// One MBA layer for `n` (>= 2): split `n = a + b` and emit a fully-parenthesized
+/// identity (so JS operator precedence is irrelevant).
+fn mba_encode(n: u64, rng: &mut StdRng) -> String {
+    let a = rng.random_range(0..=n);
+    let b = n - a;
+    match rng.random_range(0u8..2) {
+        0 => format!("(({a}^{b})+2*({a}&{b}))"),
+        _ => format!("(({a}|{b})+({a}&{b}))"),
+    }
+}
+
+/// `(start, end, value)` for every non-negative integer literal in `[2, MBA_MAX]`
+/// in expression position. Numeric keys are skipped (can't be an expression);
+/// their values are still visited.
+fn collect_int_literal_spans(js: &str) -> Option<Vec<(usize, usize, u64)>> {
+    use oxc::ast::ast::{Expression, PropertyKey};
+    use oxc::ast_visit::{walk, Visit};
+
+    struct Collector {
+        spans: Vec<(usize, usize, u64)>,
+    }
+    impl<'a> Visit<'a> for Collector {
+        fn visit_expression(&mut self, expr: &Expression<'a>) {
+            if let Expression::NumericLiteral(lit) = expr {
+                let v = lit.value;
+                if v.is_finite() && v.fract() == 0.0 && (2.0..=MBA_MAX as f64).contains(&v) {
+                    self.spans
+                        .push((lit.span.start as usize, lit.span.end as usize, v as u64));
+                }
+            }
+            walk::walk_expression(self, expr);
+        }
         fn visit_property_key(&mut self, _key: &PropertyKey<'a>) {}
     }
 
@@ -582,6 +657,126 @@ mod tests {
             assert!(out.contains("if("), "{out}");
             assert!(out.contains("foo(x)"), "original preserved: {out}");
             assert!(parses_ok(&out), "{out}");
+        }
+    }
+
+    #[test]
+    fn mba_identities_are_exact() {
+        // Both identities hold for every int32-range non-negative pair (u64 mirrors JS exactly here).
+        for (a, b) in [
+            (0u64, 0u64),
+            (1, 0),
+            (3, 2),
+            (255, 1000),
+            (0x7fff_ffff, 0),
+            (123456, 654321),
+        ] {
+            assert_eq!((a ^ b) + 2 * (a & b), a + b);
+            assert_eq!((a | b) + (a & b), a + b);
+        }
+    }
+
+    #[test]
+    fn mba_encode_evaluates_to_n() {
+        for seed in 0..32u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            for &n in &[2u64, 7, 42, 255, 1000, 65535, 0x7fff_ffff] {
+                let s = mba_encode(n, &mut rng);
+                assert_eq!(eval_uint_expr(&s), n, "seed {seed}, n {n}, expr {s}");
+            }
+        }
+    }
+
+    #[test]
+    fn mba_pass_rewrites_literals_and_reparses() {
+        let mut c = cfg();
+        c.mba = true;
+        c.minify_js = false;
+        let mut rng = StdRng::seed_from_u64(3);
+        let src = "var a = 255; var b = a + 1000; foo(b, 42);";
+        let out = transform(src, &SymbolMap::new(Some(3)), &c, &mut rng).unwrap();
+        assert!(parses_ok(&out), "{out}");
+        // MBA expressions present (bitwise ops appear), and the rewrite happened.
+        assert!(
+            out.contains('&') && (out.contains('^') || out.contains('|')),
+            "expected MBA ops: {out}"
+        );
+    }
+
+    #[test]
+    fn mba_skips_numeric_property_keys() {
+        // `{ 5: x }` must stay a valid key, not become `{ (..): x }`.
+        let mut rng = StdRng::seed_from_u64(1);
+        let out = mba_pass("var o = { 255: 1 }; o[255];", &mut rng).unwrap();
+        assert!(parses_ok(&out), "{out}");
+        assert!(out.contains("255:"), "numeric key must survive verbatim: {out}");
+        // The computed access `o[255]` is an expression position, so it is rewritten.
+        assert!(out.contains("o[(("), "computed index should be MBA-encoded: {out}");
+    }
+
+    /// Evaluate an expression over `^ & | + *` and integers with JS operator
+    /// precedence (`*` > `+` > `&` > `^` > `|`), using u64 (exact for the int32
+    /// range mba_encode emits). Test-only mirror of JS arithmetic.
+    fn eval_uint_expr(s: &str) -> u64 {
+        let t: Vec<char> = s.chars().filter(|c| !c.is_whitespace()).collect();
+        let mut p = 0;
+        let v = parse_bitor(&t, &mut p);
+        assert_eq!(p, t.len(), "trailing tokens in {s}");
+        v
+    }
+    fn parse_bitor(t: &[char], p: &mut usize) -> u64 {
+        let mut v = parse_bitxor(t, p);
+        while *p < t.len() && t[*p] == '|' {
+            *p += 1;
+            v |= parse_bitxor(t, p);
+        }
+        v
+    }
+    fn parse_bitxor(t: &[char], p: &mut usize) -> u64 {
+        let mut v = parse_bitand(t, p);
+        while *p < t.len() && t[*p] == '^' {
+            *p += 1;
+            v ^= parse_bitand(t, p);
+        }
+        v
+    }
+    fn parse_bitand(t: &[char], p: &mut usize) -> u64 {
+        let mut v = parse_add(t, p);
+        while *p < t.len() && t[*p] == '&' {
+            *p += 1;
+            v &= parse_add(t, p);
+        }
+        v
+    }
+    fn parse_add(t: &[char], p: &mut usize) -> u64 {
+        let mut v = parse_mul(t, p);
+        while *p < t.len() && t[*p] == '+' {
+            *p += 1;
+            v += parse_mul(t, p);
+        }
+        v
+    }
+    fn parse_mul(t: &[char], p: &mut usize) -> u64 {
+        let mut v = parse_atom(t, p);
+        while *p < t.len() && t[*p] == '*' {
+            *p += 1;
+            v *= parse_atom(t, p);
+        }
+        v
+    }
+    fn parse_atom(t: &[char], p: &mut usize) -> u64 {
+        if t[*p] == '(' {
+            *p += 1;
+            let v = parse_bitor(t, p);
+            assert_eq!(t[*p], ')');
+            *p += 1;
+            v
+        } else {
+            let start = *p;
+            while *p < t.len() && t[*p].is_ascii_digit() {
+                *p += 1;
+            }
+            t[start..*p].iter().collect::<String>().parse().unwrap()
         }
     }
 }

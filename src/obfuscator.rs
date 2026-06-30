@@ -204,6 +204,12 @@ impl ObfuscatorBuilder {
         self
     }
 
+    /// Replace integer literals with equivalent mixed boolean-arithmetic (AST).
+    pub fn mba(mut self, v: bool) -> Self {
+        self.config.mba = v;
+        self
+    }
+
     /// Embed `id` once as an invisible zero-width watermark in the text.
     pub fn watermark(mut self, id: u64) -> Self {
         self.config.watermark = Some(id);
