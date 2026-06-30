@@ -1,4 +1,4 @@
-use ssukka::Obfuscator;
+use ssukka_core::Obfuscator;
 
 #[test]
 fn full_obfuscation_pipeline() {
@@ -249,7 +249,7 @@ fn consistent_id_rename_across_html_css_js() {
 #[test]
 fn simple_api() {
     let html = "<div>Hello</div>";
-    let result = ssukka::obfuscate(html).unwrap();
+    let result = ssukka_core::obfuscate(html).unwrap();
     // Should produce some output
     assert!(!result.is_empty());
 }
@@ -333,7 +333,7 @@ fn ast_string_array_hides_literals() {
     let result = Obfuscator::builder()
         .seed(42)
         .js_ast(true)
-        .js_string_encoding(ssukka::config::JsStringEncoding::Array)
+        .js_string_encoding(ssukka_core::config::JsStringEncoding::Array)
         .build()
         .obfuscate(html)
         .unwrap();

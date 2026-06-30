@@ -10,7 +10,7 @@
 //! This is the *efficacy* arm; *fidelity* (a JS client still renders the
 //! original) is proven by the Node-execution tests, so low recall != "broken".
 
-use ssukka::Obfuscator;
+use ssukka_core::Obfuscator;
 use std::collections::HashSet;
 
 const ARTICLE: &str = r#"<!DOCTYPE html>

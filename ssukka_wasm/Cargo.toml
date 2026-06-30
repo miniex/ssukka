@@ -1,0 +1,27 @@
+[package]
+name = "ssukka_wasm"
+description = "WebAssembly bindings for ssukka."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ssukka_core = { workspace = true }
+
+# Pulled only for the wasm32 target, so a host build stays toolchain-free.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.126"
+getrandom = { version = "0.4.3", features = ["wasm_js"] }
+getrandom_03 = { package = "getrandom", version = "0.3.4", features = [
+  "wasm_js",
+] }
+
+[lints]
+workspace = true

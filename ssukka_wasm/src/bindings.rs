@@ -1,23 +1,14 @@
-//! WebAssembly bindings (enabled with the `wasm` feature).
-//!
-//! Build for the browser/edge with:
-//! ```sh
-//! wasm-pack build --features wasm
-//! # or
-//! cargo build --release --target wasm32-unknown-unknown --features wasm
-//! ```
-//!
-//! Because ssukka performs no I/O, the module runs anywhere WASM does
-//! (Cloudflare Workers, browsers, Deno, wasmtime) with no network access.
+//! wasm-bindgen exports (compiled only for the `wasm32` target).
 
-use crate::config::JsStringEncoding;
-use crate::Obfuscator;
+use ssukka_core::ai_opt_out;
+use ssukka_core::config::JsStringEncoding;
+use ssukka_core::Obfuscator;
 use wasm_bindgen::prelude::*;
 
 /// Obfuscate HTML with default settings (non-deterministic output).
 #[wasm_bindgen]
 pub fn obfuscate(html: &str) -> Result<String, JsValue> {
-    crate::obfuscate(html).map_err(to_js)
+    ssukka_core::obfuscate(html).map_err(to_js)
 }
 
 /// Obfuscate HTML deterministically with an explicit seed.
@@ -46,6 +37,24 @@ pub fn obfuscate_max(html: &str, honeypots: usize, seed: i64) -> Result<String, 
     b.build().obfuscate(html).map_err(to_js)
 }
 
-fn to_js(e: crate::SsukkaError) -> JsValue {
+/// AIPREF `Content-Usage` response-header value to stamp at the edge.
+#[wasm_bindgen]
+pub fn content_usage_header() -> String {
+    ai_opt_out::content_usage_header().to_string()
+}
+
+/// A ready-to-serve `robots.txt` (AIPREF opt-out + a Disallow per AI crawler).
+#[wasm_bindgen]
+pub fn robots_txt() -> String {
+    ai_opt_out::robots_txt()
+}
+
+/// The `/.well-known/tdmrep.json` body; pass a policy URL, or "" / null for none.
+#[wasm_bindgen]
+pub fn well_known_tdmrep_json(tdm_policy: Option<String>) -> String {
+    ai_opt_out::well_known_tdmrep_json(tdm_policy.as_deref().filter(|s| !s.is_empty()))
+}
+
+fn to_js(e: ssukka_core::SsukkaError) -> JsValue {
     JsValue::from_str(&e.to_string())
 }

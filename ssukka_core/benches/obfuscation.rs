@@ -1,8 +1,8 @@
 //! Throughput benchmarks for the obfuscation presets. Run with `cargo bench`.
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use ssukka::config::JsStringEncoding;
-use ssukka::Obfuscator;
+use ssukka_core::config::JsStringEncoding;
+use ssukka_core::Obfuscator;
 use std::hint::black_box;
 
 const PAGE: &str = r##"<!doctype html><html><head>

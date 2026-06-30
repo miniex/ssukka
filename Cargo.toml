@@ -1,55 +1,24 @@
-[package]
-name = "ssukka"
+[workspace]
+resolver = "2"
+members = ["ssukka_core", "ssukka", "ssukka-proxy", "ssukka_wasm"]
+# wasm is built only for the wasm32 target (wasm-pack / -p ssukka_wasm), so a
+# plain host `cargo build`/`test` skips it.
+default-members = ["ssukka_core", "ssukka", "ssukka-proxy"]
+
+[workspace.package]
 version = "0.3.0"
-description = "HTML obfuscation library and CLI for Rust. Renders identically in browsers but is hard for humans to read."
+edition = "2021"
+rust-version = "1.94"
 license = "MIT"
 authors = ["Han Damin <miniex@daminstudio.net>"]
-edition = "2021"
-publish = true
 repository = "https://github.com/miniex/ssukka"
-readme = "README.md"
-rust-version = "1.94"
-keywords = ["html", "obfuscation", "css", "javascript"]
-categories = ["web-programming", "encoding"]
 
-[features]
-default = []
-# Browser/edge WASM module.
-wasm = ["dep:wasm-bindgen", "dep:getrandom", "dep:getrandom_03"]
+[workspace.dependencies]
+ssukka_core = { path = "ssukka_core", version = "0.3.0" }
 
-[dependencies]
-aho-corasick = "1.1.4" # single-pass class/ID replacement in JS (already in the tree)
-getrandom = { version = "0.4.3", optional = true, features = [
-  "wasm_js",
-] } # wasm backend for rand's getrandom
-getrandom_03 = { package = "getrandom", version = "0.3.4", optional = true, features = [
-  "wasm_js",
-] } # wasm backend for ahash's getrandom
-lightningcss = { version = "1.0.0-alpha.71", features = [
-  "visitor",
-] } # visitor: rename @keyframes / animation-name idents
-lol_html = "3.0.0"
-oxc = { version = "0.138.0", features = [
-  "semantic",
-  "mangler",
-  "codegen",
-  "ast_visit",
-  "cfg",
-] }
-rand = "0.10.1"
-wasm-bindgen = { version = "0.2.126", optional = true } # browser/edge bindings
-
-[dev-dependencies]
-criterion = "0.8.2"
-dom_smoothie = "0.18.0" # readability-tier extractor for the extraction-efficacy tests
-
-[lints.rust]
+[workspace.lints.rust]
 unsafe_code = "forbid"
 
-[lints.clippy]
+[workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 uninlined_format_args = "warn"
-
-[[bench]]
-name = "obfuscation"
-harness = false

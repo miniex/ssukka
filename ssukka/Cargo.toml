@@ -1,0 +1,25 @@
+[package]
+name = "ssukka"
+description = "HTML obfuscation library and CLI for Rust. Renders identically in browsers but is hard for humans to read."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords = ["html", "obfuscation", "css", "javascript"]
+categories = ["web-programming", "encoding"]
+
+[dependencies]
+ssukka_core = { workspace = true }
+
+[lib]
+name = "ssukka"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ssukka"
+path = "src/main.rs"
+
+[lints]
+workspace = true

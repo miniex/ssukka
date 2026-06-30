@@ -1,0 +1,37 @@
+[package]
+name = "ssukka_core"
+description = "HTML obfuscation engine: renders identically in browsers but is hard for humans to read."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords = ["html", "obfuscation", "css", "javascript"]
+categories = ["web-programming", "encoding"]
+
+[dependencies]
+aho-corasick = "1.1.4" # single-pass class/ID replacement in JS
+lightningcss = { version = "1.0.0-alpha.71", features = [
+  "visitor",
+] } # visitor: rename @keyframes / animation-name idents
+lol_html = "3.0.0"
+oxc = { version = "0.138.0", features = [
+  "semantic",
+  "mangler",
+  "codegen",
+  "ast_visit",
+  "cfg",
+] }
+rand = "0.10.1"
+
+[dev-dependencies]
+criterion = "0.8.2"
+dom_smoothie = "0.18.0" # readability-tier extractor for the extraction-efficacy tests
+
+[[bench]]
+name = "obfuscation"
+harness = false
+
+[lints]
+workspace = true

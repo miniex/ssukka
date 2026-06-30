@@ -22,9 +22,12 @@
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = "ssukka";
-          version = (pkgs.lib.importTOML ./Cargo.toml).package.version;
+          version = (pkgs.lib.importTOML ./Cargo.toml).workspace.package.version;
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
+          # Build just the CLI crate (skips the wasm32-only member).
+          cargoBuildFlags = [ "-p" "ssukka" ];
+          cargoTestFlags = [ "-p" "ssukka_core" ];
         };
 
         devShells.default = pkgs.mkShell {

@@ -3,7 +3,7 @@
 //! above the naive harness in `efficacy.rs`. Dev-dependency only.
 
 use dom_smoothie::Readability;
-use ssukka::Obfuscator;
+use ssukka_core::Obfuscator;
 use std::collections::HashSet;
 
 const ARTICLE: &str = r#"<!DOCTYPE html>

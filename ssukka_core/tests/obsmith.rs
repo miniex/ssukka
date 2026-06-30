@@ -3,8 +3,8 @@
 //! identical output - catching semantic deviations, not just parse failures.
 //! Skipped when `node` is unavailable.
 
-use ssukka::config::JsStringEncoding;
-use ssukka::Obfuscator;
+use ssukka_core::config::JsStringEncoding;
+use ssukka_core::Obfuscator;
 use std::io::Write;
 use std::process::{Command, Stdio};
 

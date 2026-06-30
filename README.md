@@ -23,7 +23,7 @@ HTML obfuscation library and CLI for Rust. Renders identically in browsers but i
 
 These change the DOM, output size, runtime cost, or accessibility, so they are **off by default**:
 
-- **Honeypots / decoys** (`--honeypots N`) - inject invisible trap links, fake form fields, and **decoy article-like prose blocks** (dense, link-free filler in content-like class names, so an extractor starved of the real body by `--structural` harvests the decoy instead - data poisoning). Hidden from layout **and** assistive tech, and **removed on load by an injected script**, so no-JS bulk crawlers take the bait while JS clients get a clean DOM. Vocabulary: editable `assets/honeypot/*.txt`.
+- **Honeypots / decoys** (`--honeypots N`) - inject invisible trap links, fake form fields, and **decoy article-like prose blocks** (dense, link-free filler in content-like class names, so an extractor starved of the real body by `--structural` harvests the decoy instead - data poisoning). Hidden from layout **and** assistive tech, and **removed on load by an injected script**, so no-JS bulk crawlers take the bait while JS clients get a clean DOM. Vocabulary: editable `ssukka_core/assets/honeypot/*.txt`.
 - **Structural obfuscation** (`--structural`) - move visible text out of the static markup into a `data-` attribute, restored client-side by an injected script. The encoding is **polymorphic** (per-build random attribute name + XOR key + byte order), so no single static decoder recipe works across builds. Resists static scrapers (curl / readability extractors that don't run JS) while rendering identically. Warning: breaks no-JS, SEO, and degrades accessibility.
 - **AST JS engine** (`--js-ast`, powered by [oxc](https://github.com/oxc-project/oxc)):
   - **Identifier mangling** (`--mangle`) - scope-aware renaming of _local_ JS bindings (never globals, so cross-script / inline-handler references stay intact).
@@ -56,7 +56,16 @@ ssukka performs **no network I/O** at runtime - verified with `strace` (zero soc
 
 ## Architecture
 
-Streaming pipeline built on [lol_html](https://github.com/cloudflare/lol-html):
+A Cargo workspace; the engine does no I/O, and each front-end is a thin crate over it:
+
+```text
+ssukka_core   engine (lib): offline, forbid(unsafe). all transforms live here
+ssukka        facade lib (re-exports ssukka_core) + the CLI binary
+ssukka-proxy  serve-time reverse proxy (binary, skeleton)
+ssukka_wasm   wasm-bindgen bindings (cdylib, built for wasm32 only)
+```
+
+The engine is a streaming pipeline built on [lol_html](https://github.com/cloudflare/lol-html):
 
 ```text
 Input HTML
@@ -173,11 +182,12 @@ let result = ssukka::Obfuscator::builder()
 ## WASM
 
 ```bash
-cargo build --release --target wasm32-unknown-unknown --features wasm
-# or: wasm-pack build --features wasm
+wasm-pack build ssukka_wasm
+# or
+cargo build -p ssukka_wasm --release --target wasm32-unknown-unknown
 ```
 
-Exposes `obfuscate(html)`, `obfuscate_seeded(html, seed)`, and `obfuscate_max(html, honeypots, seed)`.
+Exposes `obfuscate(html)`, `obfuscate_seeded(html, seed)`, `obfuscate_max(html, honeypots, seed)`, plus the AI opt-out transport helpers `content_usage_header()`, `robots_txt()`, and `well_known_tdmrep_json(policy)` so a JS/edge middleware can emit the canonical signals. The `ssukka_wasm` crate is empty off the `wasm32` target, so a host build never pulls the wasm toolchain.
 
 ## Limitations
 
@@ -209,9 +219,9 @@ Requires Rust >= 1.94 (pinned in `rust-toolchain.toml`). A `Dockerfile` and a Ni
 ./tools/lint.sh     # cargo clippy -D warnings + shellcheck + shfmt -d + taplo
 ```
 
-Decoy/word vocabulary lives in `assets/honeypot/*.txt` (comma-separated, `#`-commented), embedded at build time via `include_str!` - edit a list and rebuild, no Rust changes and no runtime I/O.
+Decoy/word vocabulary lives in `ssukka_core/assets/honeypot/*.txt` (comma-separated, `#`-commented), embedded at build time via `include_str!` - edit a list and rebuild, no Rust changes and no runtime I/O.
 
-`cargo test --test obsmith` is an OBsmith-style semantics harness: it runs representative snippets through the full JS pipeline and executes the original and obfuscated forms under Node, asserting identical output (skipped if `node` is absent).
+`cargo test -p ssukka_core --test obsmith` is an OBsmith-style semantics harness: it runs representative snippets through the full JS pipeline and executes the original and obfuscated forms under Node, asserting identical output (skipped if `node` is absent).
 
 ## License
 

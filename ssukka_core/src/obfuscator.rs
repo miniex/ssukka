@@ -8,7 +8,7 @@ use std::path::PathBuf;
 ///
 /// # Example
 /// ```
-/// let result = ssukka::Obfuscator::builder()
+/// let result = ssukka_core::Obfuscator::builder()
 ///     .rename_classes(true)
 ///     .seed(42)
 ///     .build()

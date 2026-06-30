@@ -1,3 +1,3 @@
-# Selects getrandom's wasm backend (needed for --features wasm).
+# Selects getrandom's wasm backend (needed to build the ssukka_wasm crate).
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

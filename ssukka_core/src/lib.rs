@@ -16,9 +16,6 @@ pub mod watermark;
 pub mod word_split;
 pub mod wordlist;
 
-#[cfg(feature = "wasm")]
-pub mod wasm;
-
 pub use config::ObfuscationConfig;
 pub use error::{Result, SsukkaError};
 pub use obfuscator::{Obfuscator, ObfuscatorBuilder};
@@ -26,7 +23,7 @@ pub use obfuscator::{Obfuscator, ObfuscatorBuilder};
 /// Obfuscate HTML with default settings. Equivalent to:
 /// ```
 /// # let html = "<div>hello</div>";
-/// ssukka::Obfuscator::default().obfuscate(html);
+/// ssukka_core::Obfuscator::default().obfuscate(html);
 /// ```
 pub fn obfuscate(html: &str) -> Result<String> {
     Obfuscator::default().obfuscate(html)
