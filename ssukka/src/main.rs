@@ -56,6 +56,7 @@ struct CliOptions {
     lock_expiry: Option<u64>,
     watermark: Option<u64>,
     ai_opt_out: bool,
+    tdm_policy: Option<String>,
     inline_local: bool,
     base_dir: Option<String>,
     help: bool,
@@ -93,6 +94,7 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
         lock_expiry: None,
         watermark: None,
         ai_opt_out: false,
+        tdm_policy: None,
         inline_local: false,
         base_dir: None,
         help: false,
@@ -237,6 +239,13 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
                 );
             },
             "--ai-opt-out" => opts.ai_opt_out = true,
+            "--tdm-policy" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("missing argument for --tdm-policy".into());
+                }
+                opts.tdm_policy = Some(args[i].clone());
+            },
             "--inline-local-resources" => opts.inline_local = true,
             "--base-dir" => {
                 i += 1;
@@ -350,6 +359,9 @@ fn run(opts: CliOptions) -> std::result::Result<(), Box<dyn std::error::Error>> 
     }
     if opts.ai_opt_out {
         builder = builder.emit_ai_opt_out(true);
+    }
+    if let Some(url) = &opts.tdm_policy {
+        builder = builder.tdm_policy(url.clone());
     }
     if opts.inline_local {
         builder = builder.inline_local_resources(true);
@@ -488,6 +500,10 @@ fn print_usage() {
     opt(
         "--ai-opt-out",
         "Inject AI opt-out <meta> (noai + TDMRep + AIPREF) into <head>",
+    );
+    opt(
+        "--tdm-policy <url>",
+        "Add a TDMRep tdm-policy URL (implies --ai-opt-out)",
     );
     opt(
         "--inline-local-resources",

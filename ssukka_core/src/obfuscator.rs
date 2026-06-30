@@ -277,6 +277,13 @@ impl ObfuscatorBuilder {
         self
     }
 
+    /// Set the TDMRep `tdm-policy` URL and enable the opt-out signals.
+    pub fn tdm_policy(mut self, url: impl Into<String>) -> Self {
+        self.config.tdm_policy = Some(url.into());
+        self.config.emit_ai_opt_out = true;
+        self
+    }
+
     pub fn inline_local_resources(mut self, v: bool) -> Self {
         self.config.inline_local_resources = v;
         self

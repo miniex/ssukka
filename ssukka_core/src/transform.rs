@@ -92,6 +92,7 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     let structural_obf = config.structural_obfuscation;
     let watermark_id = config.watermark;
     let emit_ai_opt_out = config.emit_ai_opt_out;
+    let tdm_policy = config.tdm_policy.clone();
     let wants_ast = config.wants_ast();
 
     // Track preserved-whitespace context (Rc for sharing with end_tag_handlers)
@@ -384,8 +385,8 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     // AI opt-out <meta> at the start of <head> (HTTP-header / robots.txt /
     // .well-known transports live in `crate::ai_opt_out`).
     if emit_ai_opt_out {
-        element_handlers.push(element!("head", |el| {
-            el.prepend(&crate::ai_opt_out::meta_block(None), ContentType::Html);
+        element_handlers.push(element!("head", move |el| {
+            el.prepend(&crate::ai_opt_out::meta_block(tdm_policy.as_deref()), ContentType::Html);
             Ok(())
         }));
     }

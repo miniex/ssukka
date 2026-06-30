@@ -107,6 +107,10 @@ pub struct ObfuscationConfig {
     /// ignored on its own.
     pub emit_ai_opt_out: bool,
 
+    /// Optional TDMRep `tdm-policy` URL (machine-readable usage policy); added to
+    /// the opt-out `<meta>` alongside `tdm-reservation`. Implies [`Self::emit_ai_opt_out`].
+    pub tdm_policy: Option<String>,
+
     // External resources (opt-in, local files only, stays offline)
     /// Inline and obfuscate `<link rel=stylesheet>` / `<script src>` whose URL
     /// resolves to a **local file** under [`Self::base_dir`]. Never fetches
@@ -166,6 +170,7 @@ impl Default for ObfuscationConfig {
 
             watermark: None,
             emit_ai_opt_out: false,
+            tdm_policy: None,
 
             inline_local_resources: false,
             base_dir: None,
