@@ -49,6 +49,8 @@ struct CliOptions {
     self_defending: bool,
     mba: bool,
     opaque_predicates: bool,
+    domain_lock: Vec<String>,
+    lock_expiry: Option<u64>,
     watermark: Option<u64>,
     ai_opt_out: bool,
     inline_local: bool,
@@ -81,6 +83,8 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
         self_defending: false,
         mba: false,
         opaque_predicates: false,
+        domain_lock: Vec::new(),
+        lock_expiry: None,
         watermark: None,
         ai_opt_out: false,
         inline_local: false,
@@ -159,6 +163,28 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
             "--self-defending" => opts.self_defending = true,
             "--mba" => opts.mba = true,
             "--opaque-predicates" => opts.opaque_predicates = true,
+            "--domain-lock" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("missing argument for --domain-lock".into());
+                }
+                opts.domain_lock = args[i]
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+            },
+            "--lock-expiry" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("missing argument for --lock-expiry".into());
+                }
+                opts.lock_expiry = Some(
+                    args[i]
+                        .parse::<u64>()
+                        .map_err(|_| "invalid --lock-expiry (Unix seconds)")?,
+                );
+            },
             "--dead-code-threshold" => {
                 i += 1;
                 if i >= args.len() {
@@ -272,6 +298,12 @@ fn run(opts: CliOptions) -> std::result::Result<(), Box<dyn std::error::Error>> 
     if opts.opaque_predicates {
         builder = builder.js_ast(true).opaque_predicates(true);
     }
+    if !opts.domain_lock.is_empty() {
+        builder = builder.js_ast(true).domain_lock(opts.domain_lock.clone());
+    }
+    if let Some(secs) = opts.lock_expiry {
+        builder = builder.js_ast(true).lock_expiry_secs(secs);
+    }
     if let Some(t) = opts.dead_code_threshold {
         builder = builder.dead_code_threshold(t);
     }
@@ -370,6 +402,8 @@ OPTIONS:
     --self-defending         Disable console if the script is beautified (implies --js-ast)
     --mba                    Encode integer literals as mixed boolean-arithmetic (implies --js-ast)
     --opaque-predicates      Wrap statements in always-true opaque guards (implies --js-ast)
+    --domain-lock <HOSTS>    Crash the script off these comma-separated hosts (implies --js-ast)
+    --lock-expiry <UNIX_SECS>  Crash the script after this Unix time (implies --js-ast)
     --dead-code-threshold <0..1>   Fraction of sites that get dead code
     --watermark <N>          Embed an invisible zero-width id for provenance
     --ai-opt-out             Inject AI opt-out <meta> (noai + TDMRep + AIPREF) into <head>

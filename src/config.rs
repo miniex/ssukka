@@ -79,6 +79,12 @@ pub struct ObfuscationConfig {
     /// Wrap top-level expression statements in always-true opaque-predicate
     /// guards, putting real code behind a condition to analyze (requires AST).
     pub opaque_predicates: bool,
+    /// Allowed hostnames; if non-empty, inject a guard that crashes the script
+    /// off these domains (and their subdomains). Requires AST.
+    pub domain_lock: Vec<String>,
+    /// Unix expiry in seconds; if set, inject a guard that crashes the script
+    /// after this time. Requires AST.
+    pub lock_expiry_secs: Option<u64>,
 
     // Watermark / provenance (opt-in)
     /// Embed this id once as invisible zero-width characters in the text, so a
@@ -143,6 +149,8 @@ impl Default for ObfuscationConfig {
             self_defending: false,
             mba: false,
             opaque_predicates: false,
+            domain_lock: Vec::new(),
+            lock_expiry_secs: None,
 
             watermark: None,
             emit_ai_opt_out: false,
@@ -167,6 +175,8 @@ impl ObfuscationConfig {
                 || self.self_defending
                 || self.mba
                 || self.opaque_predicates
+                || !self.domain_lock.is_empty()
+                || self.lock_expiry_secs.is_some()
                 || self.js_string_encoding == JsStringEncoding::Array)
     }
 }

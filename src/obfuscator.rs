@@ -216,6 +216,18 @@ impl ObfuscatorBuilder {
         self
     }
 
+    /// Crash the script off these hostnames (and their subdomains) (AST).
+    pub fn domain_lock(mut self, domains: Vec<String>) -> Self {
+        self.config.domain_lock = domains;
+        self
+    }
+
+    /// Crash the script after this Unix time (seconds) (AST).
+    pub fn lock_expiry_secs(mut self, secs: u64) -> Self {
+        self.config.lock_expiry_secs = Some(secs);
+        self
+    }
+
     /// Embed `id` once as an invisible zero-width watermark in the text.
     pub fn watermark(mut self, id: u64) -> Self {
         self.config.watermark = Some(id);

@@ -67,6 +67,11 @@ pub fn transform(js: &str, symbols: &SymbolMap, config: &ObfuscationConfig, rng:
             code = next;
         }
     }
+    if !config.domain_lock.is_empty() || config.lock_expiry_secs.is_some() {
+        if let Some(next) = lock_pass(&code, &config.domain_lock, config.lock_expiry_secs, rng) {
+            code = next;
+        }
+    }
     // Last, so the canary's emitted source is exactly what runs (not re-printed).
     if config.self_defending {
         if let Some(next) = self_defending_pass(&code, rng) {
@@ -342,6 +347,36 @@ fn opaque_branch_pass(js: &str, rng: &mut StdRng) -> Option<String> {
         out.replace_range(*start..*end, &wrapped);
     }
     parses_ok(&out).then_some(out)
+}
+
+/// Prepend an execution lock: a guard that crashes the script (unbounded
+/// recursion -> `RangeError`) off an allowed domain or past an expiry, and is a
+/// no-op otherwise. Random identifiers avoid a fixed signature. `None` if it
+/// won't re-parse.
+fn lock_pass(js: &str, domains: &[String], expiry_secs: Option<u64>, rng: &mut StdRng) -> Option<String> {
+    let mut conds: Vec<String> = Vec::new();
+    if !domains.is_empty() {
+        let h = format!("_{}", rand_id(rng, 5));
+        let d = format!("_{}", rand_id(rng, 5));
+        let list = domains
+            .iter()
+            .map(|x| format!("\"{}\"", x.replace('\\', "\\\\").replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(",");
+        conds.push(format!(
+            "(function(){{var {h}=(typeof location!=='undefined'&&location.hostname)||'';\
+return![{list}].some(function({d}){{return {h}==={d}||{h}.endsWith('.'+{d});}});}})()"
+        ));
+    }
+    if let Some(secs) = expiry_secs {
+        conds.push(format!("(typeof Date!=='undefined'&&Date.now()>{secs}000)"));
+    }
+    if conds.is_empty() {
+        return None;
+    }
+    let f = format!("_{}", rand_id(rng, 6));
+    let result = format!("if({}){{(function {f}(){{{f}();}})();}}{js}", conds.join("||"));
+    parses_ok(&result).then_some(result)
 }
 
 /// Prepend an always-false, block-scoped junk block. The predicate (`0xNNNN <
@@ -761,6 +796,40 @@ mod tests {
             assert!((a & b) <= (a | b));
             assert!((a | b) >= a);
         }
+    }
+
+    #[test]
+    fn lock_pass_emits_domain_and_expiry_guards() {
+        let mut rng = StdRng::seed_from_u64(2);
+        let out = lock_pass("foo();", &["example.com".into()], Some(1893456000), &mut rng).unwrap();
+        assert!(parses_ok(&out), "{out}");
+        assert!(out.contains("\"example.com\""), "allowed host listed: {out}");
+        assert!(
+            out.contains("location") && out.contains("endsWith"),
+            "host check: {out}"
+        );
+        assert!(
+            out.contains("Date.now()") && out.contains("1893456000000"),
+            "expiry check (ms): {out}"
+        );
+        assert!(out.contains("foo();"), "original code preserved: {out}");
+    }
+
+    #[test]
+    fn lock_pass_is_noop_without_targets() {
+        let mut rng = StdRng::seed_from_u64(1);
+        assert!(lock_pass("foo();", &[], None, &mut rng).is_none());
+    }
+
+    #[test]
+    fn lock_pass_via_transform_keeps_code() {
+        let mut c = cfg();
+        c.domain_lock = vec!["example.com".into()];
+        let mut rng = StdRng::seed_from_u64(3);
+        let out = transform("var x=1;foo(x);", &SymbolMap::new(Some(3)), &c, &mut rng).unwrap();
+        assert!(parses_ok(&out), "{out}");
+        assert!(out.contains("example.com"), "{out}");
+        assert!(out.contains("foo(x)"), "{out}");
     }
 
     #[test]

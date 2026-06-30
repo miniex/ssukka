@@ -33,6 +33,7 @@ These change the DOM, output size, runtime cost, or accessibility, so they are *
   - **Control-flow flattening** (`--cff`) - reshape sequential logic into a shuffled `switch` dispatcher.
   - **MBA (mixed boolean-arithmetic)** (`--mba`) - replace integer literals with equivalent bitwise/arithmetic expressions (`5` becomes a `(3^6)`-style form), so a static or LLM cleanup pass has to do the arithmetic to read the constant. Exact under JS int32 semantics.
   - **Opaque predicates** (`--opaque-predicates`) - wrap top-level expression statements in always-true guards (`if(<opaque>){ stmt }`) built from bitwise identities that hold for every input, so real code sits behind a condition the analyzer must evaluate. Skips declarations and directives.
+  - **Execution lock** (`--domain-lock <hosts>`, `--lock-expiry <unix-secs>`) - inject a guard that crashes the script (unbounded recursion) when run off an allowed host (or its subdomains) or past an expiry, so the obfuscated code can't be lifted to another site or kept working forever. A no-op on the allowed domain before expiry; a deterrent, not DRM (an attacker who strips the guard defeats it).
   - **Self-defending** (`--self-defending`) - inject a check that disables `console` if the script was beautified or tampered with (deters casual beautify-and-run; a deobfuscator that strips the guard defeats it).
 - **Polymorphic mode** (`--polymorphic`) - vary which transforms run (and how) on every invocation, so identical input yields structurally different output each time (signature/cache evasion).
 - **Watermark** (`--watermark <N>`) - embed a build/recipient id as invisible zero-width characters in the body text, so a scraped or leaked copy can be traced. The id is scattered as redundant copies across multiple text nodes and recovered by majority vote, so it survives copy-paste and partial deletion (truncation, copying one section). Renders invisibly; may affect screen readers. Reversed only by a Unicode normalizer that strips the zero-width class.
@@ -115,6 +116,8 @@ ssukka -i input.html -o output.html --seed 42 --no-rename --no-minify-css
 | `--cff` | Control-flow flattening (implies `--js-ast`) |
 | `--mba` | Encode integer literals as mixed boolean-arithmetic (implies `--js-ast`) |
 | `--opaque-predicates` | Wrap statements in always-true opaque guards (implies `--js-ast`) |
+| `--domain-lock <HOSTS>` | Crash the script off these comma-separated hosts (implies `--js-ast`) |
+| `--lock-expiry <UNIX_SECS>` | Crash the script after this Unix time (implies `--js-ast`) |
 | `--dead-code` | Opaque-predicate dead code injection (implies `--js-ast`) |
 | `--self-defending` | Disable `console` if the script is beautified (implies `--js-ast`) |
 | `--dead-code-threshold <0..1>` | Fraction of sites that receive dead code |
