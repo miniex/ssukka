@@ -58,7 +58,8 @@ fn extract_script(html: &str) -> String {
 }
 
 /// Obfuscate `snippet` with every JS-level transform and return the result JS.
-fn obfuscate_js(snippet: &str) -> String {
+fn obfuscate_js(snippet: &str, virtualize: bool) -> String {
+    // `virtualize` swaps flattening for the VM path; both take the same blocks.
     let html = Obfuscator::builder()
         .seed(1)
         .js_ast(true)
@@ -67,7 +68,8 @@ fn obfuscate_js(snippet: &str) -> String {
         .mba(true)
         .opaque_predicates(true)
         .dead_code_injection(true)
-        .control_flow_flattening(true)
+        .control_flow_flattening(!virtualize)
+        .virtualize(virtualize)
         .property_keys(true)
         .build()
         .obfuscate(&format!("<script>{snippet}</script>"))
@@ -81,13 +83,17 @@ fn obfuscated_snippets_behave_identically_under_node() {
         eprintln!("node unavailable; skipping OBsmith semantics test");
         return;
     }
-    for snip in SNIPPETS {
-        let obf = obfuscate_js(snip);
-        let expected = run_node(snip);
-        let actual = run_node(&obf);
-        assert_eq!(
-            expected, actual,
-            "semantic deviation for: {snip}\n--- obfuscated ---\n{obf}"
-        );
+    // Run the full pipeline twice: once with control-flow flattening, once with
+    // virtualization (the two alternative flatteners for the same blocks).
+    for virtualize in [false, true] {
+        for snip in SNIPPETS {
+            let obf = obfuscate_js(snip, virtualize);
+            let expected = run_node(snip);
+            let actual = run_node(&obf);
+            assert_eq!(
+                expected, actual,
+                "semantic deviation (virtualize={virtualize}) for: {snip}\n--- obfuscated ---\n{obf}"
+            );
+        }
     }
 }

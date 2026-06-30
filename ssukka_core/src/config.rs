@@ -72,6 +72,9 @@ pub struct ObfuscationConfig {
     pub poison_names: bool,
     /// Flatten sequential control flow into a switch dispatcher (requires AST).
     pub control_flow_flattening: bool,
+    /// Virtualize sequential control flow into a bytecode + interpreter loop, a
+    /// stronger alternative to [`Self::control_flow_flattening`] (requires AST).
+    pub virtualize: bool,
     /// Inject opaque-predicate-guarded dead code (requires AST).
     pub dead_code_injection: bool,
     /// Fraction (0.0..=1.0) of eligible sites that receive dead code.
@@ -159,6 +162,7 @@ impl Default for ObfuscationConfig {
             mangle_identifiers: false,
             poison_names: false,
             control_flow_flattening: false,
+            virtualize: false,
             dead_code_injection: false,
             dead_code_threshold: 0.4,
             self_defending: false,
@@ -188,6 +192,7 @@ impl ObfuscationConfig {
             && (self.mangle_identifiers
                 || self.poison_names
                 || self.control_flow_flattening
+                || self.virtualize
                 || self.dead_code_injection
                 || self.self_defending
                 || self.mba

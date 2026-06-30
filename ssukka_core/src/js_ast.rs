@@ -1,6 +1,6 @@
 //! AST-based JS obfuscation via [oxc](https://github.com/oxc-project/oxc):
 //! local identifier mangling, minification, string arrays, dead code, and
-//! control-flow flattening.
+//! control-flow flattening/virtualization.
 //!
 //! Every rewriting step re-parses its output and is dropped if it would emit
 //! invalid JS; a parse failure on input falls back to [`crate::js`]. Transforms
@@ -62,6 +62,13 @@ pub fn transform(js: &str, symbols: &SymbolMap, config: &ObfuscationConfig, rng:
 
     if config.dead_code_injection {
         if let Some(next) = dead_code_pass(&code, config.dead_code_threshold, rng) {
+            code = next;
+        }
+    }
+    // Virtualization first; it takes the same eligible blocks as flattening, so
+    // any leftover for cff_pass will already contain control flow and be skipped.
+    if config.virtualize {
+        if let Some(next) = vm_pass(&code, rng) {
             code = next;
         }
     }
@@ -506,15 +513,17 @@ fn dead_code_pass(js: &str, threshold: f32, rng: &mut StdRng) -> Option<String> 
     parses_ok(&result).then_some(result)
 }
 
-/// Control-flow flattening: rewrite a straight-line statement sequence (top-level
-/// or a function/arrow block body) into a `while`/`switch` state machine with
-/// shuffled cases and a random state variable, hiding the order.
-///
-/// Correct-by-construction: a block flattens only if every statement is an
+/// Shared block flattener for [`cff_pass`] and [`vm_pass`]: find straight-line
+/// statement sequences (top-level or a function/arrow block body) and hand each to
+/// `render`. Correct-by-construction: a block is taken only if every statement is an
 /// expression statement or a simple `var` decl (hoisted) - no control flow,
 /// `let`/`const`, or declarations to preserve, and `this`/`arguments` stay put.
-/// Else left alone; chosen blocks don't overlap. `None` if nothing flattens.
-fn cff_pass(js: &str, rng: &mut StdRng) -> Option<String> {
+/// Chosen blocks don't overlap. `None` if nothing matches or it won't re-parse.
+fn flatten_blocks(
+    js: &str,
+    rng: &mut StdRng,
+    render: fn(&[String], &[String], &mut StdRng) -> String,
+) -> Option<String> {
     use oxc::ast::ast::{BindingPattern, FunctionBody, Program, Statement, VariableDeclarationKind};
     use oxc::ast_visit::{walk, Visit};
     use oxc::span::GetSpan;
@@ -607,9 +616,31 @@ fn cff_pass(js: &str, rng: &mut StdRng) -> Option<String> {
     // Splice from the end (selected is start-descending) so offsets stay valid.
     let mut out = js.to_owned();
     for (start, end, hoist, frags) in &selected {
-        out.replace_range(*start..*end, &cff_dispatcher(hoist, frags, rng));
+        out.replace_range(*start..*end, &render(hoist, frags, rng));
     }
     parses_ok(&out).then_some(out)
+}
+
+/// Control-flow flattening: rewrite eligible blocks into a `while`/`switch` state
+/// machine (shuffled cases, random state variable), hiding the linear order.
+fn cff_pass(js: &str, rng: &mut StdRng) -> Option<String> {
+    flatten_blocks(js, rng, cff_dispatcher)
+}
+
+/// Control-flow virtualization: a stronger alternative to [`cff_pass`] that runs
+/// eligible blocks through a bytecode interpreter (see [`vm_render`]) so the order
+/// lives in data, not JS control flow; arrows keep `this`/`arguments`.
+fn vm_pass(js: &str, rng: &mut StdRng) -> Option<String> {
+    flatten_blocks(js, rng, vm_render)
+}
+
+/// `var a,b;` hoist prefix for a flattened block (empty when there is none).
+fn hoist_decl(hoist: &[String]) -> String {
+    if hoist.is_empty() {
+        String::new()
+    } else {
+        format!("var {};", hoist.join(","))
+    }
 }
 
 /// Build the `while`/`switch` state machine for one flattened block: fragments
@@ -638,14 +669,45 @@ fn cff_dispatcher(hoist: &[String], frags: &[String], rng: &mut StdRng) -> Strin
     for &p in &order {
         cases.push_str(&format!("case {}:{}{st}={};break;", labels[p], frags[p], labels[p + 1]));
     }
-    let hoist_decl = if hoist.is_empty() {
-        String::new()
-    } else {
-        format!("var {};", hoist.join(","))
-    };
     format!(
-        "{hoist_decl}var {st}={};while({st}!=={done}){{switch({st}){{{cases}}}}}",
+        "{}var {st}={};while({st}!=={done}){{switch({st}){{{cases}}}}}",
+        hoist_decl(hoist),
         labels[0]
+    )
+}
+
+/// Build the virtual machine for one flattened block: an op table of arrow thunks
+/// stored in shuffled order, an XOR-encoded bytecode array listing them in
+/// execution order, and a loop that decodes each byte and calls the thunk.
+fn vm_render(hoist: &[String], frags: &[String], rng: &mut StdRng) -> String {
+    let n = frags.len();
+    // slot[exec position] = storage index in the op table (a random permutation).
+    let mut slot: Vec<usize> = (0..n).collect();
+    for i in (1..n).rev() {
+        slot.swap(i, rng.random_range(0..=i));
+    }
+    let mut store_to_exec = vec![0usize; n];
+    for (p, &s) in slot.iter().enumerate() {
+        store_to_exec[s] = p;
+    }
+
+    let key = rng.random_range(1u32..=0xffff);
+    let ops = (0..n)
+        .map(|s| format!("()=>{{{}}}", frags[store_to_exec[s]]))
+        .collect::<Vec<_>>()
+        .join(",");
+    let code = slot
+        .iter()
+        .map(|&s| (s as u32 ^ key).to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let vt = format!("_{}", rand_id(rng, 5));
+    let bc = format!("_{}", rand_id(rng, 5));
+    let pc = format!("_{}", rand_id(rng, 5));
+    format!(
+        "{}var {vt}=[{ops}],{bc}=[{code}];for(var {pc}=0;{pc}<{bc}.length;{pc}++){{{vt}[{bc}[{pc}]^{key}]();}}",
+        hoist_decl(hoist)
     )
 }
 
@@ -1080,6 +1142,21 @@ mod tests {
         // declaration, so nothing flattens.
         let mut rng = StdRng::seed_from_u64(1);
         assert!(cff_pass("function r(){var a=1;if(a){log(a);}log(a);}", &mut rng).is_none());
+    }
+
+    #[test]
+    fn vm_virtualizes_straightline_function_body() {
+        let mut rng = StdRng::seed_from_u64(5);
+        let out = vm_pass("function r(){var a=2;var b=a*3;log(a);log(b);}", &mut rng).unwrap();
+        assert!(parses_ok(&out), "{out}");
+        assert!(
+            out.contains("=>{") && out.contains(".length;"),
+            "op table + dispatch loop: {out}"
+        );
+        assert!(
+            out.contains("var a,b") || (out.contains("var a") && out.contains("var b")),
+            "vars hoisted: {out}"
+        );
     }
 
     #[test]

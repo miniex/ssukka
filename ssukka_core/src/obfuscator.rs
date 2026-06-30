@@ -76,6 +76,7 @@ impl Obfuscator {
             c.mba |= rng.random_bool(0.7);
             c.opaque_predicates |= rng.random_bool(0.7);
             c.property_keys |= rng.random_bool(0.6);
+            c.virtualize |= rng.random_bool(0.5);
             c.dead_code_injection |= rng.random_bool(0.6);
             if c.dead_code_injection {
                 c.dead_code_threshold = f32::from(rng.random_range(2u8..=8)) / 10.0;
@@ -210,6 +211,11 @@ impl ObfuscatorBuilder {
 
     pub fn poison_names(mut self, v: bool) -> Self {
         self.config.poison_names = v;
+        self
+    }
+
+    pub fn virtualize(mut self, v: bool) -> Self {
+        self.config.virtualize = v;
         self
     }
 

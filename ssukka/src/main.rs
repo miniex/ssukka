@@ -44,6 +44,7 @@ struct CliOptions {
     mangle: bool,
     poison_names: bool,
     cff: bool,
+    vm: bool,
     dead_code: bool,
     dead_code_threshold: Option<f32>,
     self_defending: bool,
@@ -82,6 +83,7 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
         mangle: false,
         poison_names: false,
         cff: false,
+        vm: false,
         dead_code: false,
         dead_code_threshold: None,
         self_defending: false,
@@ -167,6 +169,7 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
             "--mangle" => opts.mangle = true,
             "--poison-names" => opts.poison_names = true,
             "--cff" => opts.cff = true,
+            "--vm" => opts.vm = true,
             "--dead-code" => opts.dead_code = true,
             "--self-defending" => opts.self_defending = true,
             "--mba" => opts.mba = true,
@@ -324,6 +327,9 @@ fn run(opts: CliOptions) -> std::result::Result<(), Box<dyn std::error::Error>> 
     if opts.cff {
         builder = builder.js_ast(true).control_flow_flattening(true);
     }
+    if opts.vm {
+        builder = builder.js_ast(true).virtualize(true);
+    }
     if opts.dead_code {
         builder = builder.js_ast(true).dead_code_injection(true);
     }
@@ -462,6 +468,7 @@ fn print_usage() {
     opt("--mangle", "Scope-aware local identifier renaming (implies --js-ast)");
     opt("--poison-names", "Rename locals to misleading names (implies --js-ast)");
     opt("--cff", "Control-flow flattening (implies --js-ast)");
+    opt("--vm", "Control-flow virtualization, stronger --cff (implies --js-ast)");
     opt("--dead-code", "Opaque-predicate dead code injection (implies --js-ast)");
     opt(
         "--self-defending",

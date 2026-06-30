@@ -32,6 +32,7 @@ These change the DOM, output size, runtime cost, or accessibility, so they are *
   - **Property keys** (`--property-keys`) - convert object-literal keys to computed string keys (`{foo: 1}` becomes `{["foo"]: 1}`), so with the string array the key names are hoisted and encoded too instead of sitting in plain sight.
   - **Dead code injection** (`--dead-code`) - opaque-predicate-guarded junk that never executes; predicate and body shapes vary per build so they aren't a fixed signature.
   - **Control-flow flattening** (`--cff`) - rewrite straight-line statement sequences (the top level and function/arrow block bodies) into a `while`/`switch` state machine with shuffled cases, a random state variable, and label-based transitions (`var` bindings hoisted). Correct-by-construction: a block is flattened only when every statement is an expression statement or a simple `var` declaration - no control flow, `let`/`const`, or declarations to preserve - so semantics hold; anything else is left intact.
+  - **Control-flow virtualization** (`--vm`) - a stronger alternative to `--cff` over the same blocks: lift the statements into an op table of arrow-function thunks plus an XOR-encoded bytecode array, run by a generic dispatch loop, so the execution order lives in data (the bytecode) instead of JS control flow. Same correct-by-construction subset; arrow thunks keep `this`/`arguments`. Adds a small per-statement closure cost; when both are set, `--vm` wins.
   - **MBA (mixed boolean-arithmetic)** (`--mba`) - replace integer literals with equivalent bitwise/arithmetic expressions (`5` becomes a `(3^6)`-style form), so a static or LLM cleanup pass has to do the arithmetic to read the constant. Exact under JS int32 semantics.
   - **Opaque predicates** (`--opaque-predicates`) - wrap top-level expression statements in always-true guards (`if(<opaque>){ stmt }`) built from bitwise identities that hold for every input, so real code sits behind a condition the analyzer must evaluate. Skips declarations and directives.
   - **Execution lock** (`--domain-lock <hosts>`, `--lock-expiry <unix-secs>`) - inject a guard that crashes the script (unbounded recursion) when run off an allowed host (or its subdomains) or past an expiry, so the obfuscated code can't be lifted to another site or kept working forever. A no-op on the allowed domain before expiry; a deterrent, not DRM (an attacker who strips the guard defeats it).
@@ -125,6 +126,7 @@ ssukka -i input.html -o output.html --seed 42 --no-rename --no-minify-css
 | `--mangle` | Scope-aware local identifier renaming (implies `--js-ast`) |
 | `--poison-names` | Rename locals to misleading names (implies `--js-ast`) |
 | `--cff` | Control-flow flattening (implies `--js-ast`) |
+| `--vm` | Control-flow virtualization, stronger `--cff` (implies `--js-ast`) |
 | `--mba` | Encode integer literals as mixed boolean-arithmetic (implies `--js-ast`) |
 | `--opaque-predicates` | Wrap statements in always-true opaque guards (implies `--js-ast`) |
 | `--property-keys` | Convert object keys to computed string keys (implies `--js-ast`) |
@@ -137,13 +139,14 @@ ssukka -i input.html -o output.html --seed 42 --no-rename --no-minify-css
 | `--dead-code-threshold <0..1>` | Fraction of sites that receive dead code |
 | `--watermark <N>` | Embed an invisible zero-width id for provenance |
 | `--ai-opt-out` | Inject AI opt-out `<meta>` (noai + TDMRep + AIPREF) into `<head>` |
+| `--tdm-policy <URL>` | Add a TDMRep `tdm-policy` URL (implies `--ai-opt-out`) |
 | `--inline-local-resources` | Inline local `<link>`/`<script src>` (offline only) |
 | `--base-dir <DIR>` | Base directory for resolving local resources |
 
 ```bash
 # Maximum: layered obfuscation for the strongest output
 ssukka -i input.html -o output.html \
-    --honeypots 8 --structural --mangle --cff --dead-code --mba --opaque-predicates \
+    --honeypots 8 --structural --mangle --vm --dead-code --mba --opaque-predicates \
     --js-string-encoding array
 ```
 
