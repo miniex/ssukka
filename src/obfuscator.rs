@@ -48,8 +48,9 @@ impl Obfuscator {
     }
 
     /// Resolve the config for one invocation. In polymorphic mode (and only
-    /// without a fixed `seed`), a random subset of *safe* cosmetic transforms
-    /// is toggled/varied; correctness-critical ones are never touched.
+    /// without a fixed `seed`), a random subset of *safe* cosmetic transforms is
+    /// toggled/varied and, when the AST engine is on, the JS transform chain is
+    /// deepened; correctness-critical choices are never weakened.
     fn effective_config(&self) -> ObfuscationConfig {
         use rand::{rngs::StdRng, RngExt, SeedableRng};
 
@@ -66,6 +67,22 @@ impl Obfuscator {
         if c.inject_honeypots {
             let base = c.honeypot_count.max(2);
             c.honeypot_count = rng.random_range(2..=base + 6);
+        }
+
+        // Deepen the JS chain per build when the AST engine is on - all stacked
+        // transforms are semantics-preserving, and `|=` never drops a user choice.
+        if c.js_ast {
+            c.mangle_identifiers |= rng.random_bool(0.8);
+            c.mba |= rng.random_bool(0.7);
+            c.opaque_predicates |= rng.random_bool(0.7);
+            c.property_keys |= rng.random_bool(0.6);
+            c.dead_code_injection |= rng.random_bool(0.6);
+            if c.dead_code_injection {
+                c.dead_code_threshold = f32::from(rng.random_range(2u8..=8)) / 10.0;
+            }
+            if c.js_string_encoding != JsStringEncoding::Array && rng.random_bool(0.6) {
+                c.js_string_encoding = JsStringEncoding::Array;
+            }
         }
         c
     }
@@ -282,5 +299,47 @@ impl ObfuscatorBuilder {
 
     pub fn build(self) -> Obfuscator {
         Obfuscator { config: self.config }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seeded_polymorphic_is_ignored() {
+        // A fixed seed means deterministic output, so polymorphic must not vary.
+        let c = Obfuscator::builder()
+            .polymorphic(true)
+            .seed(1)
+            .js_ast(true)
+            .build()
+            .effective_config();
+        assert!(!c.mba && !c.opaque_predicates && !c.dead_code_injection);
+    }
+
+    #[test]
+    fn polymorphic_deepens_chain_without_dropping_user_transforms() {
+        let o = Obfuscator::builder()
+            .polymorphic(true)
+            .js_ast(true)
+            .mangle_identifiers(true)
+            .build();
+        let mut saw_extra = false;
+        for _ in 0..64 {
+            let c = o.effective_config();
+            assert!(c.mangle_identifiers, "a user-enabled transform must never be dropped");
+            saw_extra |= c.mba || c.opaque_predicates || c.dead_code_injection || c.property_keys;
+        }
+        assert!(saw_extra, "polymorphic should stack extra JS transforms");
+    }
+
+    #[test]
+    fn polymorphic_leaves_js_chain_off_without_ast_engine() {
+        let o = Obfuscator::builder().polymorphic(true).build();
+        for _ in 0..32 {
+            let c = o.effective_config();
+            assert!(!c.mba && !c.opaque_predicates && !c.property_keys && !c.dead_code_injection);
+        }
     }
 }
