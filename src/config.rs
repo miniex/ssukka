@@ -80,8 +80,10 @@ pub struct ObfuscationConfig {
     pub watermark: Option<u64>,
 
     // Machine-readable AI opt-out (opt-in)
-    /// Inject `<meta>` opt-out signals (`robots: noai`, TDM reservation) into
-    /// `<head>`. A polite, legally-recognized signal; widely ignored on its own.
+    /// Inject standards-aligned `<meta>` opt-out signals into `<head>` (legacy
+    /// `noai`, TDMRep `tdm-reservation`, AIPREF `Content-Usage`); the non-HTML
+    /// transports live in [`crate::ai_opt_out`]. Legally recognized but widely
+    /// ignored on its own.
     pub emit_ai_opt_out: bool,
 
     // External resources (opt-in, local files only, stays offline)

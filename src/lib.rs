@@ -1,3 +1,4 @@
+pub mod ai_opt_out;
 pub mod analysis;
 pub mod config;
 pub mod css;

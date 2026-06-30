@@ -34,7 +34,7 @@ These change the DOM, output size, runtime cost, or accessibility, so they are *
   - **Self-defending** (`--self-defending`) - inject a check that disables `console` if the script was beautified or tampered with (deters casual beautify-and-run; a deobfuscator that strips the guard defeats it).
 - **Polymorphic mode** (`--polymorphic`) - vary which transforms run (and how) on every invocation, so identical input yields structurally different output each time (signature/cache evasion).
 - **Watermark** (`--watermark <N>`) - embed a build/recipient id as invisible zero-width characters in the body text, so a scraped or leaked copy can be traced. Renders invisibly and survives copy-paste; may affect screen readers.
-- **AI opt-out signals** (`--ai-opt-out`) - inject `<meta>` opt-out tags (`robots: noai`, TDM reservation) into `<head>`. A polite, legally recognized signal that bulk crawlers widely ignore on its own; pair it with the in-content deterrents above.
+- **AI opt-out signals** (`--ai-opt-out`) - inject standards-aligned `<meta>` opt-out tags into `<head>`: legacy `robots: noai`, W3C **TDMRep** (`tdm-reservation`, the EU CDSM Art.4 / AI Act rights-reservation lane), and a best-effort IETF **AIPREF** `Content-Usage: train-ai=n` (`http-equiv`). The canonical AIPREF/TDMRep transports - an HTTP `Content-Usage` response header, a `robots.txt` rule, and `/.well-known/tdmrep.json` - are exposed as library helpers (`ssukka::ai_opt_out::{meta_block, robots_txt, content_usage_header, well_known_tdmrep_json}`) for edge/server deployment. A legally recognized signal that bulk crawlers widely ignore on its own; pair it with the in-content deterrents above.
 - **Word splitting** (`--comment-split`) - insert empty comments inside long words so naive regex/substring scrapers see fragmented text, while browsers, screen readers, find-in-page, and content extractors read it intact. Flow content only (never `<title>` or other RCDATA).
 - **WASM build** - runs in the browser / Cloudflare Workers / Deno via the `wasm` feature.
 
@@ -115,7 +115,7 @@ ssukka -i input.html -o output.html --seed 42 --no-rename --no-minify-css
 | `--self-defending` | Disable `console` if the script is beautified (implies `--js-ast`) |
 | `--dead-code-threshold <0..1>` | Fraction of sites that receive dead code |
 | `--watermark <N>` | Embed an invisible zero-width id for provenance |
-| `--ai-opt-out` | Inject `<meta>` AI opt-out signals into `<head>` |
+| `--ai-opt-out` | Inject AI opt-out `<meta>` (noai + TDMRep + AIPREF) into `<head>` |
 | `--inline-local-resources` | Inline local `<link>`/`<script src>` (offline only) |
 | `--base-dir <DIR>` | Base directory for resolving local resources |
 
@@ -185,7 +185,7 @@ When using the aggressive layers, keep these costs in mind:
 
 - **SEO** - `--structural` moves text behind JS. Search engines that render JS (Google) usually recover it on a delayed pass, but unreliable or non-rendering crawlers index an empty shell. Keep SEO-critical copy in the static markup or provide a `<noscript>` fallback.
 - **Accessibility** - `--structural` text is absent from the accessibility tree until the restore script runs; `--watermark` adds zero-width characters that some screen readers announce and that break programmatic text matching. Never apply these to content that must be reliably read by assistive tech. The CLI prints a stderr `warning:` for each aggressive option.
-- **Legal** - `--ai-opt-out` emits the machine-readable signals (robots `noai`, TDM reservation) that are the rising, legally-backed opt-out lever; they are widely ignored on their own, so treat them as complementary to the in-content deterrents, not a replacement.
+- **Legal** - `--ai-opt-out` emits the machine-readable signals (legacy robots `noai`, W3C TDMRep `tdm-reservation`, IETF AIPREF `Content-Usage`) that are the rising, legally-backed opt-out lever - TDMRep is the protocol EU rightsholders point to under the CDSM Directive Art.4 and the AI Act. They are widely ignored on their own, so treat them as complementary to the in-content deterrents, not a replacement. For the HTTP-header / robots.txt / `.well-known` transports, use the `ssukka::ai_opt_out` helpers at the edge.
 
 ## Development
 

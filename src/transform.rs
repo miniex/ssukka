@@ -379,14 +379,11 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
         Ok(())
     }));
 
-    // Inject machine-readable AI opt-out signals at the start of <head>.
+    // AI opt-out <meta> at the start of <head> (HTTP-header / robots.txt /
+    // .well-known transports live in `crate::ai_opt_out`).
     if emit_ai_opt_out {
         element_handlers.push(element!("head", |el| {
-            el.prepend(
-                "<meta name=\"robots\" content=\"noai, noimageai\">\
-<meta name=\"tdm-reservation\" content=\"1\">",
-                ContentType::Html,
-            );
+            el.prepend(&crate::ai_opt_out::meta_block(None), ContentType::Html);
             Ok(())
         }));
     }
@@ -680,5 +677,6 @@ mod tests {
         let result = transform(html, &symbols, &config).unwrap();
         assert!(result.contains(r#"<meta name="robots" content="noai, noimageai">"#));
         assert!(result.contains(r#"<meta name="tdm-reservation" content="1">"#));
+        assert!(result.contains(r#"<meta http-equiv="Content-Usage" content="train-ai=n">"#));
     }
 }

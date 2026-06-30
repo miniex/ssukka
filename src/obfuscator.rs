@@ -210,7 +210,8 @@ impl ObfuscatorBuilder {
         self
     }
 
-    /// Inject `<meta>` AI opt-out signals (`robots: noai`, TDM reservation).
+    /// Inject standards-aligned `<meta>` AI opt-out signals (legacy `noai`,
+    /// TDMRep, AIPREF). See [`crate::ai_opt_out`] for the non-HTML transports.
     pub fn emit_ai_opt_out(mut self, v: bool) -> Self {
         self.config.emit_ai_opt_out = v;
         self

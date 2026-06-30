@@ -358,7 +358,7 @@ OPTIONS:
     --self-defending         Disable console if the script is beautified (implies --js-ast)
     --dead-code-threshold <0..1>   Fraction of sites that get dead code
     --watermark <N>          Embed an invisible zero-width id for provenance
-    --ai-opt-out             Inject <meta> AI opt-out signals into <head>
+    --ai-opt-out             Inject AI opt-out <meta> (noai + TDMRep + AIPREF) into <head>
     --inline-local-resources Inline local <link>/<script src> (offline only)
     --base-dir <DIR>         Base directory for resolving local resources
 

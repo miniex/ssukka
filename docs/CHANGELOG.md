@@ -2,6 +2,16 @@
 
 Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **AI opt-out transport helpers** (`ssukka::ai_opt_out`): standalone functions for the canonical AIPREF/TDMRep transports an HTML library can't emit itself — `robots_txt()` (a site-wide AIPREF `Content-Usage: train-ai=n` rule plus a `Disallow` group per known AI training crawler), `content_usage_header()` (the HTTP response-header value), and `well_known_tdmrep_json()` (the `/.well-known/tdmrep.json` body, with optional `tdm-policy` URL) — for edge/server (e.g. Cloudflare Worker) deployment. Targeted crawler tokens are exposed as `AI_TRAINING_CRAWLERS` and the tracked AIPREF vocabulary draft as `AIPREF_VOCAB_DRAFT`. (`src/ai_opt_out.rs`)
+
+### Changed
+
+- **AI opt-out signals are now standards-aligned** (`--ai-opt-out`, `emit_ai_opt_out(true)`). The injected `<head>` `<meta>` block adds W3C **TDMRep** `tdm-reservation` (the EU CDSM Art.4 / AI Act rights-reservation lane) and a best-effort IETF **AIPREF** `Content-Usage: train-ai=n` (`http-equiv`) alongside the legacy `robots: noai, noimageai`. The block is centralized in the new `ssukka::ai_opt_out::meta_block` (with optional `tdm-policy` URL). (`src/ai_opt_out.rs`, `src/transform.rs`)
+
 ## [0.3.0] - 2026-06-29
 
 ### Added
