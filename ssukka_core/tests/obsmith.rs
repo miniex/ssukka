@@ -17,6 +17,8 @@ const SNIPPETS: &[&str] = &[
     "var s='abcdef'.split('').reverse().join('');console.log(s,s.length,255,0xff);",
     "var m={alpha:1,beta:2};var t=0;for(var k in m){t+=m[k];}console.log(t,JSON.stringify(m));",
     "try{null.x;}catch(e){console.log('caught',e instanceof TypeError);}",
+    // straight-line function body (no control flow) -> exercises CFF flattening
+    "function run(){var a=2;var b=a*a;var c=b+a;console.log(a,b,c);}run();run();",
 ];
 
 fn node_available() -> bool {

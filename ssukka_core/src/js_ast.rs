@@ -506,63 +506,147 @@ fn dead_code_pass(js: &str, threshold: f32, rng: &mut StdRng) -> Option<String> 
     parses_ok(&result).then_some(result)
 }
 
-/// Conservative control-flow flattening: if the program body is a sequence of
-/// simple expression statements (no declarations / control flow), reorder them
-/// into a shuffled `switch` dispatcher driven by a sequential order array, which
-/// preserves execution order while obscuring linear flow. Otherwise no-op.
+/// Control-flow flattening: rewrite a straight-line statement sequence (top-level
+/// or a function/arrow block body) into a `while`/`switch` state machine with
+/// shuffled cases and a random state variable, hiding the order.
+///
+/// Correct-by-construction: a block flattens only if every statement is an
+/// expression statement or a simple `var` decl (hoisted) - no control flow,
+/// `let`/`const`, or declarations to preserve, and `this`/`arguments` stay put.
+/// Else left alone; chosen blocks don't overlap. `None` if nothing flattens.
 fn cff_pass(js: &str, rng: &mut StdRng) -> Option<String> {
-    use oxc::ast::ast::Statement;
+    use oxc::ast::ast::{BindingPattern, FunctionBody, Program, Statement, VariableDeclarationKind};
+    use oxc::ast_visit::{walk, Visit};
+    use oxc::span::GetSpan;
+
+    /// `(hoisted var names, ordered executable fragments)`, or `None` if any
+    /// statement is ineligible or there are fewer than two fragments.
+    fn block_units(js: &str, stmts: &[Statement]) -> Option<(Vec<String>, Vec<String>)> {
+        let slice = |s: u32, e: u32| js[s as usize..e as usize].trim().to_string();
+        let mut hoist: Vec<String> = Vec::new();
+        let mut frags: Vec<String> = Vec::new();
+        for stmt in stmts {
+            match stmt {
+                Statement::ExpressionStatement(e) => {
+                    let mut f = slice(e.span.start, e.span.end);
+                    if !f.ends_with(';') {
+                        f.push(';');
+                    }
+                    frags.push(f);
+                },
+                Statement::VariableDeclaration(v) if matches!(v.kind, VariableDeclarationKind::Var) => {
+                    for d in &v.declarations {
+                        let name = match &d.id {
+                            BindingPattern::BindingIdentifier(bi) => bi.name.to_string(),
+                            _ => return None, // destructuring pattern: bail
+                        };
+                        if !hoist.contains(&name) {
+                            hoist.push(name.clone());
+                        }
+                        if let Some(init) = &d.init {
+                            let s = init.span();
+                            frags.push(format!("{name}={};", slice(s.start, s.end)));
+                        }
+                    }
+                },
+                _ => return None,
+            }
+        }
+        (frags.len() >= 2).then_some((hoist, frags))
+    }
+
+    type Cand = (usize, usize, Vec<String>, Vec<String>);
+    struct Collector<'s> {
+        js: &'s str,
+        cands: Vec<Cand>,
+    }
+    impl Collector<'_> {
+        fn consider(&mut self, stmts: &[Statement]) {
+            let (Some(first), Some(last)) = (stmts.first(), stmts.last()) else {
+                return;
+            };
+            if let Some((hoist, frags)) = block_units(self.js, stmts) {
+                self.cands
+                    .push((first.span().start as usize, last.span().end as usize, hoist, frags));
+            }
+        }
+    }
+    impl<'a> Visit<'a> for Collector<'_> {
+        fn visit_program(&mut self, it: &Program<'a>) {
+            self.consider(&it.body);
+            walk::walk_program(self, it);
+        }
+        fn visit_function_body(&mut self, it: &FunctionBody<'a>) {
+            // Concise arrow bodies have one (implicit-return) statement, so they
+            // never reach two fragments and are left intact.
+            self.consider(&it.statements);
+            walk::walk_function_body(self, it);
+        }
+    }
 
     let allocator = Allocator::default();
     let ret = Parser::new(&allocator, js, SourceType::cjs()).parse();
     if ret.panicked || !ret.diagnostics.is_empty() {
         return None;
     }
+    let mut c = Collector { js, cands: Vec::new() };
+    c.visit_program(&ret.program);
 
-    // Only flatten when every top-level statement is a plain expression
-    // statement; anything else (declarations, returns, loops) is unsafe to
-    // move into switch cases due to hoisting/scoping.
-    let body = &ret.program.body;
-    if body.len() < 3 || !body.iter().all(|s| matches!(s, Statement::ExpressionStatement(_))) {
+    // Pick non-overlapping blocks, innermost (latest start) first.
+    c.cands.sort_by_key(|&(start, ..)| std::cmp::Reverse(start));
+    let mut selected: Vec<Cand> = Vec::new();
+    for cand in c.cands {
+        if !selected.iter().any(|s| cand.0 < s.1 && cand.1 > s.0) {
+            selected.push(cand);
+        }
+    }
+    if selected.is_empty() {
         return None;
     }
 
-    let n = body.len();
-    let mut fragments: Vec<String> = Vec::with_capacity(n);
-    for stmt in body {
-        let span = match stmt {
-            Statement::ExpressionStatement(e) => e.span,
-            _ => return None,
-        };
-        let mut frag = js[span.start as usize..span.end as usize].trim().to_string();
-        if !frag.ends_with(';') {
-            frag.push(';');
-        }
-        fragments.push(frag);
+    // Splice from the end (selected is start-descending) so offsets stay valid.
+    let mut out = js.to_owned();
+    for (start, end, hoist, frags) in &selected {
+        out.replace_range(*start..*end, &cff_dispatcher(hoist, frags, rng));
     }
+    parses_ok(&out).then_some(out)
+}
 
-    // Shuffled case labels; the order array lists them in execution order.
-    let mut labels: Vec<usize> = (0..n).collect();
+/// Build the `while`/`switch` state machine for one flattened block: fragments
+/// fire in original order through a shuffled, randomly-labelled state, with the
+/// `var` bindings hoisted ahead of the loop.
+fn cff_dispatcher(hoist: &[String], frags: &[String], rng: &mut StdRng) -> String {
+    let n = frags.len();
+    // n case labels + 1 terminal, all distinct.
+    let mut labels: Vec<u32> = Vec::with_capacity(n + 1);
+    let mut seen = HashSet::new();
+    while labels.len() < n + 1 {
+        let x = rng.random_range(1000u32..=9_999_999);
+        if seen.insert(x) {
+            labels.push(x);
+        }
+    }
+    let st = format!("_{}", rand_id(rng, 5));
+    let done = labels[n];
+
+    let mut order: Vec<usize> = (0..n).collect();
     for i in (1..n).rev() {
         let j = rng.random_range(0..=i);
-        labels.swap(i, j);
+        order.swap(i, j);
     }
-    let order = rand_id(rng, 5);
-    let ptr = rand_id(rng, 5);
-
-    // Fragment `i` (execution position `i`) lives under `case labels[i]`. The
-    // order array selects labels[0], labels[1], ... so cases fire in original
-    // sequence despite the shuffled case layout.
     let mut cases = String::new();
-    for (exec_idx, label) in labels.iter().enumerate() {
-        cases.push_str(&format!("case {label}:{}break;", fragments[exec_idx]));
+    for &p in &order {
+        cases.push_str(&format!("case {}:{}{st}={};break;", labels[p], frags[p], labels[p + 1]));
     }
-    let order_list = labels.iter().map(usize::to_string).collect::<Vec<_>>().join(",");
-
-    let result = format!(
-        "var _{order}=[{order_list}],_{ptr}=0;while(_{ptr}<_{order}.length){{switch(_{order}[_{ptr}++]){{{cases}}}}}"
-    );
-    parses_ok(&result).then_some(result)
+    let hoist_decl = if hoist.is_empty() {
+        String::new()
+    } else {
+        format!("var {};", hoist.join(","))
+    };
+    format!(
+        "{hoist_decl}var {st}={};while({st}!=={done}){{switch({st}){{{cases}}}}}",
+        labels[0]
+    )
 }
 
 /// Plausible-but-arbitrary names. Renaming locals to these (not base54 `e,t,n`)
@@ -973,6 +1057,29 @@ mod tests {
         assert!(out.starts_with(r#""use strict";"#), "directive must stay first: {out}");
         assert!(out.contains("var x=1;"), "declaration must stay unwrapped: {out}");
         assert!(out.contains("if("), "the expression statement should be wrapped: {out}");
+    }
+
+    #[test]
+    fn cff_flattens_straightline_function_body() {
+        let mut rng = StdRng::seed_from_u64(3);
+        let out = cff_pass("function r(){var a=2;var b=a*3;log(a);log(b);}", &mut rng).unwrap();
+        assert!(parses_ok(&out), "{out}");
+        assert!(
+            out.contains("switch(") && out.contains("while("),
+            "dispatcher emitted: {out}"
+        );
+        assert!(
+            out.contains("var a,b") || (out.contains("var a") && out.contains("var b")),
+            "vars hoisted: {out}"
+        );
+    }
+
+    #[test]
+    fn cff_bails_on_control_flow() {
+        // An `if` makes the body ineligible, and the top level is just a function
+        // declaration, so nothing flattens.
+        let mut rng = StdRng::seed_from_u64(1);
+        assert!(cff_pass("function r(){var a=1;if(a){log(a);}log(a);}", &mut rng).is_none());
     }
 
     #[test]
