@@ -1,0 +1,4 @@
+# Decoy prose nouns
+system, market, report, value, process, network, resource, analysis, section, customer
+period, feature, summary, region, strategy, quarter, platform, metric, release, standard
+protocol, document, baseline, framework, segment, channel, forecast, balance, portfolio

@@ -6,10 +6,12 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic 
 
 ### Added
 
+- **Editable decoy/word lists in `assets/`** via `ssukka::wordlist::parse` + `include_str!` (comma-separated, `#`-commented). Embedded at build time: editable without touching source, no runtime I/O (offline/WASM-safe). (`src/wordlist.rs`, `assets/honeypot/*.txt`)
 - **AI opt-out transport helpers** (`ssukka::ai_opt_out`): standalone functions for the canonical AIPREF/TDMRep transports an HTML library can't emit itself — `robots_txt()` (a site-wide AIPREF `Content-Usage: train-ai=n` rule plus a `Disallow` group per known AI training crawler), `content_usage_header()` (the HTTP response-header value), and `well_known_tdmrep_json()` (the `/.well-known/tdmrep.json` body, with optional `tdm-policy` URL) — for edge/server (e.g. Cloudflare Worker) deployment. Targeted crawler tokens are exposed as `AI_TRAINING_CRAWLERS` and the tracked AIPREF vocabulary draft as `AIPREF_VOCAB_DRAFT`. (`src/ai_opt_out.rs`)
 
 ### Changed
 
+- **Honeypot decoy blocks now emit dense, link-free article-like prose** instead of short random tokens (`--honeypots`), wrapped in a content-like class (`article-body`, ...). An extractor starved of the real body by `--structural` scores the decoy as the article and harvests the filler (data poisoning, not just wasted effort). Still hidden, marked, and removed on load for JS clients. (`src/honeypot.rs`)
 - **AI opt-out signals are now standards-aligned** (`--ai-opt-out`, `emit_ai_opt_out(true)`). The injected `<head>` `<meta>` block adds W3C **TDMRep** `tdm-reservation` (the EU CDSM Art.4 / AI Act rights-reservation lane) and a best-effort IETF **AIPREF** `Content-Usage: train-ai=n` (`http-equiv`) alongside the legacy `robots: noai, noimageai`. The block is centralized in the new `ssukka::ai_opt_out::meta_block` (with optional `tdm-policy` URL). (`src/ai_opt_out.rs`, `src/transform.rs`)
 
 ## [0.3.0] - 2026-06-29

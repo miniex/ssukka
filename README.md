@@ -23,7 +23,7 @@ HTML obfuscation library and CLI for Rust. Renders identically in browsers but i
 
 These change the DOM, output size, runtime cost, or accessibility, so they are **off by default**:
 
-- **Honeypots / decoys** (`--honeypots N`) - inject invisible trap links, fake form fields, and bogus data blocks to waste scraper effort. Hidden from layout **and** assistive tech, and **removed on load by an injected script**, so no-JS bulk crawlers take the bait from the raw HTML while JS clients get a clean DOM with no signature.
+- **Honeypots / decoys** (`--honeypots N`) - inject invisible trap links, fake form fields, and **decoy article-like prose blocks** (dense, link-free filler in content-like class names, so an extractor starved of the real body by `--structural` harvests the decoy instead - data poisoning). Hidden from layout **and** assistive tech, and **removed on load by an injected script**, so no-JS bulk crawlers take the bait while JS clients get a clean DOM. Vocabulary: editable `assets/honeypot/*.txt`.
 - **Structural obfuscation** (`--structural`) - move visible text out of the static markup into a `data-` attribute, restored client-side by an injected script. The encoding is **polymorphic** (per-build random attribute name + XOR key + byte order), so no single static decoder recipe works across builds. Resists static scrapers (curl / readability extractors that don't run JS) while rendering identically. Warning: breaks no-JS, SEO, and degrades accessibility.
 - **AST JS engine** (`--js-ast`, powered by [oxc](https://github.com/oxc-project/oxc)):
   - **Identifier mangling** (`--mangle`) - scope-aware renaming of _local_ JS bindings (never globals, so cross-script / inline-handler references stay intact).
@@ -195,6 +195,8 @@ Requires Rust >= 1.94 (pinned in `rust-toolchain.toml`). A `Dockerfile` and a Ni
 ./tools/format.sh   # cargo fmt + shfmt + taplo fmt + prettier (md)
 ./tools/lint.sh     # cargo clippy -D warnings + shellcheck + shfmt -d + taplo
 ```
+
+Decoy/word vocabulary lives in `assets/honeypot/*.txt` (comma-separated, `#`-commented), embedded at build time via `include_str!` - edit a list and rebuild, no Rust changes and no runtime I/O.
 
 ## License
 

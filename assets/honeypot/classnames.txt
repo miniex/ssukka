@@ -1,0 +1,4 @@
+# Decoy class / field name fragments
+wrapper, inner, content, item, node, list, entry, field, block, panel
+row, col, data, meta, label, value, group, section, module, unit
+container, holder, box, cell

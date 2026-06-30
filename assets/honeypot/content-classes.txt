@@ -1,0 +1,3 @@
+# Container class names extractors score as main content (decoy looks like the article)
+article-body, post-content, entry-content, main-content, article-text
+story-body, content-body, post-body, entry-text, article__content

@@ -1,0 +1,2 @@
+# Decoy prose clause connectors
+while, although, because, whereas, meanwhile, since, as

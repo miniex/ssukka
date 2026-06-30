@@ -14,6 +14,7 @@ pub mod symbol_map;
 pub mod transform;
 pub mod watermark;
 pub mod word_split;
+pub mod wordlist;
 
 #[cfg(feature = "wasm")]
 pub mod wasm;
