@@ -15,6 +15,10 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic 
 - **Honeypot decoy blocks now emit dense, link-free article-like prose** instead of short random tokens (`--honeypots`), wrapped in a content-like class (`article-body`, ...). An extractor starved of the real body by `--structural` scores the decoy as the article and harvests the filler (data poisoning, not just wasted effort). Still hidden, marked, and removed on load for JS clients. (`src/honeypot.rs`)
 - **AI opt-out signals are now standards-aligned** (`--ai-opt-out`, `emit_ai_opt_out(true)`). The injected `<head>` `<meta>` block adds W3C **TDMRep** `tdm-reservation` (the EU CDSM Art.4 / AI Act rights-reservation lane) and a best-effort IETF **AIPREF** `Content-Usage: train-ai=n` (`http-equiv`) alongside the legacy `robots: noai, noimageai`. The block is centralized in the new `ssukka::ai_opt_out::meta_block` (with optional `tdm-policy` URL). (`src/ai_opt_out.rs`, `src/transform.rs`)
 
+### Dependencies
+
+- Bumped `oxc` 0.137 -> 0.138; MSRV stays 1.94 (oxc 0.138 still builds on it).
+
 ## [0.3.0] - 2026-06-29
 
 ### Added

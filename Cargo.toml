@@ -29,7 +29,7 @@ lightningcss = { version = "1.0.0-alpha.71", features = [
   "visitor",
 ] } # visitor: rename @keyframes / animation-name idents
 lol_html = "3.0.0"
-oxc = { version = "0.137.0", features = [
+oxc = { version = "0.138.0", features = [
   "semantic",
   "mangler",
   "codegen",
