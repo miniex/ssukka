@@ -62,6 +62,11 @@ pub fn transform(js: &str, symbols: &SymbolMap, config: &ObfuscationConfig, rng:
             code = next;
         }
     }
+    if config.opaque_predicates {
+        if let Some(next) = opaque_branch_pass(&code, rng) {
+            code = next;
+        }
+    }
     // Last, so the canary's emitted source is exactly what runs (not re-printed).
     if config.self_defending {
         if let Some(next) = self_defending_pass(&code, rng) {
@@ -292,6 +297,51 @@ fn collect_int_literal_spans(js: &str) -> Option<Vec<(usize, usize, u64)>> {
     let mut c = Collector { spans: Vec::new() };
     c.visit_program(&ret.program);
     Some(c.spans)
+}
+
+/// A predicate true for ALL non-negative int32 operands (not just the chosen
+/// constants), so the guarded code always runs. Bitwise identities.
+fn opaque_true(rng: &mut StdRng) -> String {
+    let a = rng.random_range(0..=MBA_MAX);
+    let b = rng.random_range(0..=MBA_MAX);
+    match rng.random_range(0u8..3) {
+        0 => format!("(({a}^{b})===(({a}|{b})-({a}&{b})))"), // a^b == (a|b)-(a&b)
+        1 => format!("(({a}&{b})<=({a}|{b}))"),              // a&b <= a|b
+        _ => format!("(({a}|{b})>={a})"),                    // a|b >= a
+    }
+}
+
+/// Wrap top-level expression statements in an always-true guard
+/// (`if(<opaque>){ stmt }`). Only expression statements are wrapped - wrapping
+/// declarations would change block scoping, and string-literal directives must
+/// stay in place. `None` if there's nothing to wrap or it won't re-parse.
+fn opaque_branch_pass(js: &str, rng: &mut StdRng) -> Option<String> {
+    use oxc::ast::ast::{Expression, Statement};
+
+    let allocator = Allocator::default();
+    let ret = Parser::new(&allocator, js, SourceType::cjs()).parse();
+    if ret.panicked || !ret.diagnostics.is_empty() {
+        return None;
+    }
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    for stmt in &ret.program.body {
+        if let Statement::ExpressionStatement(es) = stmt {
+            if matches!(es.expression, Expression::StringLiteral(_)) {
+                continue; // leave "use strict" and other directives in place
+            }
+            spans.push((es.span.start as usize, es.span.end as usize));
+        }
+    }
+    if spans.is_empty() {
+        return None;
+    }
+    // Splice from the end so earlier byte offsets stay valid.
+    let mut out = js.to_owned();
+    for (start, end) in spans.iter().rev() {
+        let wrapped = format!("if({}){{{}}}", opaque_true(rng), &js[*start..*end]);
+        out.replace_range(*start..*end, &wrapped);
+    }
+    parses_ok(&out).then_some(out)
 }
 
 /// Prepend an always-false, block-scoped junk block. The predicate (`0xNNNN <
@@ -701,6 +751,39 @@ mod tests {
             out.contains('&') && (out.contains('^') || out.contains('|')),
             "expected MBA ops: {out}"
         );
+    }
+
+    #[test]
+    fn opaque_true_identities_always_hold() {
+        // The three predicate forms are true for ALL non-negative int32 pairs.
+        for (a, b) in [(0u64, 0u64), (1, 2), (255, 1000), (0x7fff_ffff, 1), (123456, 654321)] {
+            assert_eq!(a ^ b, (a | b) - (a & b));
+            assert!((a & b) <= (a | b));
+            assert!((a | b) >= a);
+        }
+    }
+
+    #[test]
+    fn opaque_branch_wraps_expr_statements_and_reparses() {
+        let mut rng = StdRng::seed_from_u64(4);
+        let out = opaque_branch_pass("foo();bar(x);", &mut rng).unwrap();
+        assert!(parses_ok(&out), "{out}");
+        assert!(out.contains("if("), "statements should be guarded: {out}");
+        assert!(
+            out.contains("foo()") && out.contains("bar(x)"),
+            "originals preserved: {out}"
+        );
+    }
+
+    #[test]
+    fn opaque_branch_leaves_directives_and_declarations() {
+        let mut rng = StdRng::seed_from_u64(8);
+        let out = opaque_branch_pass(r#""use strict";var x=1;foo();"#, &mut rng).unwrap();
+        assert!(parses_ok(&out), "{out}");
+        // Directive prologue and declarations must not be wrapped.
+        assert!(out.starts_with(r#""use strict";"#), "directive must stay first: {out}");
+        assert!(out.contains("var x=1;"), "declaration must stay unwrapped: {out}");
+        assert!(out.contains("if("), "the expression statement should be wrapped: {out}");
     }
 
     #[test]

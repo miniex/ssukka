@@ -76,6 +76,9 @@ pub struct ObfuscationConfig {
     /// Replace integer literals with equivalent mixed boolean-arithmetic so an
     /// LLM/static pass can't trivially read the constant (requires AST).
     pub mba: bool,
+    /// Wrap top-level expression statements in always-true opaque-predicate
+    /// guards, putting real code behind a condition to analyze (requires AST).
+    pub opaque_predicates: bool,
 
     // Watermark / provenance (opt-in)
     /// Embed this id once as invisible zero-width characters in the text, so a
@@ -139,6 +142,7 @@ impl Default for ObfuscationConfig {
             dead_code_threshold: 0.4,
             self_defending: false,
             mba: false,
+            opaque_predicates: false,
 
             watermark: None,
             emit_ai_opt_out: false,
@@ -162,6 +166,7 @@ impl ObfuscationConfig {
                 || self.dead_code_injection
                 || self.self_defending
                 || self.mba
+                || self.opaque_predicates
                 || self.js_string_encoding == JsStringEncoding::Array)
     }
 }

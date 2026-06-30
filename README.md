@@ -32,6 +32,7 @@ These change the DOM, output size, runtime cost, or accessibility, so they are *
   - **Dead code injection** (`--dead-code`) - opaque-predicate-guarded junk that never executes; predicate and body shapes vary per build so they aren't a fixed signature.
   - **Control-flow flattening** (`--cff`) - reshape sequential logic into a shuffled `switch` dispatcher.
   - **MBA (mixed boolean-arithmetic)** (`--mba`) - replace integer literals with equivalent bitwise/arithmetic expressions (`5` becomes a `(3^6)`-style form), so a static or LLM cleanup pass has to do the arithmetic to read the constant. Exact under JS int32 semantics.
+  - **Opaque predicates** (`--opaque-predicates`) - wrap top-level expression statements in always-true guards (`if(<opaque>){ stmt }`) built from bitwise identities that hold for every input, so real code sits behind a condition the analyzer must evaluate. Skips declarations and directives.
   - **Self-defending** (`--self-defending`) - inject a check that disables `console` if the script was beautified or tampered with (deters casual beautify-and-run; a deobfuscator that strips the guard defeats it).
 - **Polymorphic mode** (`--polymorphic`) - vary which transforms run (and how) on every invocation, so identical input yields structurally different output each time (signature/cache evasion).
 - **Watermark** (`--watermark <N>`) - embed a build/recipient id as invisible zero-width characters in the body text, so a scraped or leaked copy can be traced. Renders invisibly and survives copy-paste; may affect screen readers.
@@ -113,6 +114,7 @@ ssukka -i input.html -o output.html --seed 42 --no-rename --no-minify-css
 | `--poison-names` | Rename locals to misleading names (implies `--js-ast`) |
 | `--cff` | Control-flow flattening (implies `--js-ast`) |
 | `--mba` | Encode integer literals as mixed boolean-arithmetic (implies `--js-ast`) |
+| `--opaque-predicates` | Wrap statements in always-true opaque guards (implies `--js-ast`) |
 | `--dead-code` | Opaque-predicate dead code injection (implies `--js-ast`) |
 | `--self-defending` | Disable `console` if the script is beautified (implies `--js-ast`) |
 | `--dead-code-threshold <0..1>` | Fraction of sites that receive dead code |
@@ -124,7 +126,7 @@ ssukka -i input.html -o output.html --seed 42 --no-rename --no-minify-css
 ```bash
 # Maximum: layered obfuscation for the strongest output
 ssukka -i input.html -o output.html \
-    --honeypots 8 --structural --mangle --cff --dead-code --mba \
+    --honeypots 8 --structural --mangle --cff --dead-code --mba --opaque-predicates \
     --js-string-encoding array
 ```
 
@@ -156,6 +158,7 @@ let result = ssukka::Obfuscator::builder()
     .dead_code_injection(true)
     .control_flow_flattening(true)
     .mba(true)
+    .opaque_predicates(true)
     .build()
     .obfuscate(html)?;
 ```

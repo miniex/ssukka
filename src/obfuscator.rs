@@ -210,6 +210,12 @@ impl ObfuscatorBuilder {
         self
     }
 
+    /// Wrap top-level expression statements in always-true opaque guards (AST).
+    pub fn opaque_predicates(mut self, v: bool) -> Self {
+        self.config.opaque_predicates = v;
+        self
+    }
+
     /// Embed `id` once as an invisible zero-width watermark in the text.
     pub fn watermark(mut self, id: u64) -> Self {
         self.config.watermark = Some(id);
