@@ -112,8 +112,8 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
     // Whether the current <script> is real JS, not JSON/template/etc.
     let script_is_js = RefCell::new(true);
 
-    // The watermark is embedded only once.
-    let watermark_done = RefCell::new(false);
+    // Redundant watermark copies scattered across eligible text nodes.
+    let watermark_copies = RefCell::new(0usize);
 
     // Accumulation buffers for style/script text (lol_html may split text chunks)
     let style_buf: RefCell<String> = RefCell::new(String::new());
@@ -350,10 +350,12 @@ pub fn transform(html: &str, symbols: &SymbolMap, config: &ObfuscationConfig) ->
             .unwrap_or(false);
 
         // Before the structural/entity passes so it travels with the text either way.
+        // Scatter up to COPIES marks across nodes so partial removal still decodes.
         if let Some(id) = watermark_id {
-            if !is_preserved && parent_is_safe && !*watermark_done.borrow() && !processed.trim().is_empty() {
+            let mut n = watermark_copies.borrow_mut();
+            if !is_preserved && parent_is_safe && *n < watermark::COPIES && !processed.trim().is_empty() {
                 processed = format!("{}{processed}", watermark::embed(id));
-                *watermark_done.borrow_mut() = true;
+                *n += 1;
             }
         }
 
