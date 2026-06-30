@@ -154,6 +154,18 @@ impl ObfuscatorBuilder {
         self
     }
 
+    /// String literals to keep out of the string array (matched by exact value).
+    pub fn reserved_strings(mut self, strings: Vec<String>) -> Self {
+        self.config.reserved_strings = strings;
+        self
+    }
+
+    /// Fraction (0.0..=1.0) of eligible string literals the string array encodes.
+    pub fn string_array_threshold(mut self, t: f32) -> Self {
+        self.config.string_array_threshold = t.clamp(0.0, 1.0);
+        self
+    }
+
     pub fn inject_honeypots(mut self, v: bool) -> Self {
         self.config.inject_honeypots = v;
         self
@@ -213,6 +225,13 @@ impl ObfuscatorBuilder {
     /// Wrap top-level expression statements in always-true opaque guards (AST).
     pub fn opaque_predicates(mut self, v: bool) -> Self {
         self.config.opaque_predicates = v;
+        self
+    }
+
+    /// Convert object-literal keys to computed string keys so the string array
+    /// can encode them (AST).
+    pub fn property_keys(mut self, v: bool) -> Self {
+        self.config.property_keys = v;
         self
     }
 

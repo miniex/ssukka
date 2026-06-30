@@ -27,9 +27,17 @@ pub fn transform(js: &str, symbols: &SymbolMap, config: &ObfuscationConfig, rng:
         js.to_owned()
     };
 
+    // Object keys -> computed string keys, before the string array so it can
+    // encode them.
+    if config.property_keys {
+        if let Some(next) = property_keys_pass(&code) {
+            code = next;
+        }
+    }
+
     // String arrays before codegen, which may turn literals into templates.
     if config.js_string_encoding == crate::config::JsStringEncoding::Array {
-        if let Some(next) = string_array_pass(&code, rng) {
+        if let Some(next) = string_array_pass(&code, &config.reserved_strings, config.string_array_threshold, rng) {
             code = next;
         }
     }
@@ -146,8 +154,16 @@ fn rand_id(rng: &mut StdRng, len: usize) -> String {
 ///
 /// Only `StringLiteral` expressions are rewritten (property keys, directives, and
 /// import sources stay untouched). `None` if nothing to do or it won't re-parse.
-fn string_array_pass(js: &str, rng: &mut StdRng) -> Option<String> {
-    let spans = collect_string_expr_spans(js)?;
+fn string_array_pass(js: &str, reserved: &[String], threshold: f32, rng: &mut StdRng) -> Option<String> {
+    let mut spans = collect_string_expr_spans(js)?;
+    // Whitelist: keep reserved strings readable.
+    if !reserved.is_empty() {
+        spans.retain(|(_, _, v)| !reserved.iter().any(|r| r == v));
+    }
+    // Threshold: encode only a fraction (rng untouched at 1.0 to keep default output).
+    if threshold < 1.0 {
+        spans.retain(|_| (rng.random_range(0..1000) as f32) < threshold * 1000.0);
+    }
     if spans.len() < 2 {
         return None;
     }
@@ -205,7 +221,7 @@ fn string_array_pass(js: &str, rng: &mut StdRng) -> Option<String> {
 /// Collect (start, end, decoded-value) for every top-level-safe string literal
 /// expression, using a span-recording visitor.
 fn collect_string_expr_spans(js: &str) -> Option<Vec<(usize, usize, String)>> {
-    use oxc::ast::ast::{Expression, PropertyKey};
+    use oxc::ast::ast::{Expression, ObjectProperty, PropertyKey};
     use oxc::ast_visit::{walk, Visit};
 
     struct Collector {
@@ -221,9 +237,19 @@ fn collect_string_expr_spans(js: &str) -> Option<Vec<(usize, usize, String)>> {
             walk::walk_expression(self, expr);
         }
 
-        // A non-computed string property key (`{ "k": v }`) reaches us through
-        // `visit_expression`, but replacing it with a call would be invalid.
-        // Skip property keys entirely (their values are still visited).
+        // Encode the value always; the key only when computed (a computed key is
+        // an expression position, a static key can't become a call).
+        fn visit_object_property(&mut self, prop: &ObjectProperty<'a>) {
+            if prop.computed {
+                if let Some(e) = prop.key.as_expression() {
+                    self.visit_expression(e);
+                }
+            }
+            self.visit_expression(&prop.value);
+        }
+
+        // Other property keys (class members, static object keys) stay readable so
+        // a key never becomes a call expression.
         fn visit_property_key(&mut self, _key: &PropertyKey<'a>) {}
     }
 
@@ -235,6 +261,64 @@ fn collect_string_expr_spans(js: &str) -> Option<Vec<(usize, usize, String)>> {
     let mut c = Collector { spans: Vec::new() };
     c.visit_program(&ret.program);
     Some(c.spans)
+}
+
+/// Convert safe object-literal keys (`{foo: v}`) into computed string keys
+/// (`{["foo"]: v}`) so the string array can encode them. Skips methods,
+/// getters/setters, shorthand, computed, numeric, and `__proto__` (a computed key
+/// drops its prototype-setting form). `None` if nothing to convert or it won't re-parse.
+fn property_keys_pass(js: &str) -> Option<String> {
+    use oxc::ast::ast::{ObjectProperty, PropertyKey, PropertyKind};
+    use oxc::ast_visit::{walk, Visit};
+
+    struct Collector {
+        repl: Vec<(usize, usize, String)>,
+    }
+    impl<'a> Visit<'a> for Collector {
+        fn visit_object_property(&mut self, prop: &ObjectProperty<'a>) {
+            if matches!(prop.kind, PropertyKind::Init) && !prop.method && !prop.shorthand && !prop.computed {
+                let key = match &prop.key {
+                    PropertyKey::StaticIdentifier(id) => Some((id.span, id.name.as_str())),
+                    PropertyKey::StringLiteral(lit) => Some((lit.span, lit.value.as_str())),
+                    _ => None,
+                };
+                if let Some((span, name)) = key {
+                    if name != "__proto__" {
+                        let mut rep = String::from("[\"");
+                        for c in name.chars() {
+                            match c {
+                                '\\' => rep.push_str("\\\\"),
+                                '"' => rep.push_str("\\\""),
+                                '\n' => rep.push_str("\\n"),
+                                _ => rep.push(c),
+                            }
+                        }
+                        rep.push_str("\"]");
+                        self.repl.push((span.start as usize, span.end as usize, rep));
+                    }
+                }
+            }
+            walk::walk_object_property(self, prop);
+        }
+    }
+
+    let allocator = Allocator::default();
+    let ret = Parser::new(&allocator, js, SourceType::cjs()).parse();
+    if ret.panicked || !ret.diagnostics.is_empty() {
+        return None;
+    }
+    let mut c = Collector { repl: Vec::new() };
+    c.visit_program(&ret.program);
+    if c.repl.is_empty() {
+        return None;
+    }
+    c.repl.sort_by_key(|&(start, _, _)| start);
+    // Splice from the end so earlier byte offsets stay valid.
+    let mut out = js.to_owned();
+    for (start, end, rep) in c.repl.iter().rev() {
+        out.replace_range(*start..*end, rep);
+    }
+    parses_ok(&out).then_some(out)
 }
 
 /// MBA literal bound: i32::MAX keeps operands and bitwise results non-negative
@@ -666,7 +750,7 @@ mod tests {
     fn string_array_hides_literals_and_reparses() {
         let mut rng = StdRng::seed_from_u64(1);
         let src = r#"var a="hello world"; var b="second string"; console.log(a,b);"#;
-        let out = string_array_pass(src, &mut rng).unwrap();
+        let out = string_array_pass(src, &[], 1.0, &mut rng).unwrap();
         assert!(!out.contains("hello world"));
         assert!(!out.contains("second string"));
         // Anti-hook: no standard decode primitives for a deobfuscator to latch onto.
@@ -681,10 +765,46 @@ mod tests {
         // "use strict" directive and the property key "k" must survive verbatim.
         let mut rng = StdRng::seed_from_u64(2);
         let src = r#""use strict"; var o = { "k": "v1", m: "v2" }; foo(o);"#;
-        let out = string_array_pass(src, &mut rng).unwrap();
+        let out = string_array_pass(src, &[], 1.0, &mut rng).unwrap();
         assert!(out.contains("\"use strict\""));
         assert!(out.contains("\"k\""));
         assert!(parses_ok(&out));
+    }
+
+    #[test]
+    fn string_array_keeps_reserved_strings_readable() {
+        let mut rng = StdRng::seed_from_u64(1);
+        let src = r#"var a="keepme"; var b="secret one"; var c="secret two"; f(a,b,c);"#;
+        let out = string_array_pass(src, &["keepme".into()], 1.0, &mut rng).unwrap();
+        assert!(out.contains("\"keepme\""), "reserved string must stay readable: {out}");
+        assert!(!out.contains("secret one") && !out.contains("secret two"), "{out}");
+        assert!(parses_ok(&out));
+    }
+
+    #[test]
+    fn property_keys_become_computed_strings() {
+        let out = property_keys_pass(r#"var o = { foo: 1, "bar": 2, [x]: 3, m() {}, __proto__: p };"#).unwrap();
+        assert!(parses_ok(&out), "{out}");
+        assert!(out.contains(r#"["foo"]"#), "identifier key -> computed string: {out}");
+        assert!(out.contains(r#"["bar"]"#), "string key -> computed string: {out}");
+        // computed key, method, and __proto__ are left untouched.
+        assert!(
+            out.contains("[x]") && out.contains("m()") && out.contains("__proto__:"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn property_keys_then_string_array_encodes_keys() {
+        // With both passes, the converted keys are hoisted into the string array.
+        let mut c = cfg();
+        c.property_keys = true;
+        c.js_string_encoding = crate::config::JsStringEncoding::Array;
+        let mut rng = StdRng::seed_from_u64(4);
+        let src = r#"var o = { secretKey: 1, other: 2 }; use(o);"#;
+        let out = transform(src, &SymbolMap::new(Some(4)), &c, &mut rng).unwrap();
+        assert!(parses_ok(&out), "{out}");
+        assert!(!out.contains("secretKey"), "key name should be encoded away: {out}");
     }
 
     #[test]

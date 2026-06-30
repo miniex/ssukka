@@ -28,7 +28,8 @@ These change the DOM, output size, runtime cost, or accessibility, so they are *
 - **AST JS engine** (`--js-ast`, powered by [oxc](https://github.com/oxc-project/oxc)):
   - **Identifier mangling** (`--mangle`) - scope-aware renaming of _local_ JS bindings (never globals, so cross-script / inline-handler references stay intact).
   - **Poison names** (`--poison-names`) - rename _local_ bindings to plausible-but-misleading words (`cursor`, `vertex`, ...) instead of short ones, so an LLM "clean this up" pass anchors on names it keeps rather than re-deriving the originals. Each name is unique and avoids every identifier already in the script, so nothing is shadowed.
-  - **String array** (`--js-string-encoding array`) - hoist string literals into a per-build shuffled character pool, decoded by (offset-shifted) index at runtime. Uses no `atob` / `String.fromCharCode` / `TextDecoder`, so hook-based deobfuscators have nothing to latch onto (a tool that _executes_ the decoder still recovers the strings).
+  - **String array** (`--js-string-encoding array`) - hoist string literals into a per-build shuffled character pool, decoded by (offset-shifted) index at runtime. Uses no `atob` / `String.fromCharCode` / `TextDecoder`, so hook-based deobfuscators have nothing to latch onto (a tool that _executes_ the decoder still recovers the strings). Tune with `--reserved-strings <s>` (keep listed strings readable) and `--string-array-threshold <0..1>` (encode only a fraction).
+  - **Property keys** (`--property-keys`) - convert object-literal keys to computed string keys (`{foo: 1}` becomes `{["foo"]: 1}`), so with the string array the key names are hoisted and encoded too instead of sitting in plain sight.
   - **Dead code injection** (`--dead-code`) - opaque-predicate-guarded junk that never executes; predicate and body shapes vary per build so they aren't a fixed signature.
   - **Control-flow flattening** (`--cff`) - reshape sequential logic into a shuffled `switch` dispatcher.
   - **MBA (mixed boolean-arithmetic)** (`--mba`) - replace integer literals with equivalent bitwise/arithmetic expressions (`5` becomes a `(3^6)`-style form), so a static or LLM cleanup pass has to do the arithmetic to read the constant. Exact under JS int32 semantics.
@@ -116,6 +117,9 @@ ssukka -i input.html -o output.html --seed 42 --no-rename --no-minify-css
 | `--cff` | Control-flow flattening (implies `--js-ast`) |
 | `--mba` | Encode integer literals as mixed boolean-arithmetic (implies `--js-ast`) |
 | `--opaque-predicates` | Wrap statements in always-true opaque guards (implies `--js-ast`) |
+| `--property-keys` | Convert object keys to computed string keys (implies `--js-ast`) |
+| `--reserved-strings <S>` | Comma-separated strings to keep out of the string array |
+| `--string-array-threshold <0..1>` | Fraction of strings the string array encodes |
 | `--domain-lock <HOSTS>` | Crash the script off these comma-separated hosts (implies `--js-ast`) |
 | `--lock-expiry <UNIX_SECS>` | Crash the script after this Unix time (implies `--js-ast`) |
 | `--dead-code` | Opaque-predicate dead code injection (implies `--js-ast`) |
@@ -206,6 +210,8 @@ Requires Rust >= 1.94 (pinned in `rust-toolchain.toml`). A `Dockerfile` and a Ni
 ```
 
 Decoy/word vocabulary lives in `assets/honeypot/*.txt` (comma-separated, `#`-commented), embedded at build time via `include_str!` - edit a list and rebuild, no Rust changes and no runtime I/O.
+
+`cargo test --test obsmith` is an OBsmith-style semantics harness: it runs representative snippets through the full JS pipeline and executes the original and obfuscated forms under Node, asserting identical output (skipped if `node` is absent).
 
 ## License
 

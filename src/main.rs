@@ -49,6 +49,9 @@ struct CliOptions {
     self_defending: bool,
     mba: bool,
     opaque_predicates: bool,
+    property_keys: bool,
+    reserved_strings: Vec<String>,
+    string_array_threshold: Option<f32>,
     domain_lock: Vec<String>,
     lock_expiry: Option<u64>,
     watermark: Option<u64>,
@@ -83,6 +86,9 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
         self_defending: false,
         mba: false,
         opaque_predicates: false,
+        property_keys: false,
+        reserved_strings: Vec::new(),
+        string_array_threshold: None,
         domain_lock: Vec::new(),
         lock_expiry: None,
         watermark: None,
@@ -163,6 +169,29 @@ fn parse_args(args: &[String]) -> std::result::Result<CliOptions, String> {
             "--self-defending" => opts.self_defending = true,
             "--mba" => opts.mba = true,
             "--opaque-predicates" => opts.opaque_predicates = true,
+            "--property-keys" => opts.property_keys = true,
+            "--reserved-strings" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("missing argument for --reserved-strings".into());
+                }
+                opts.reserved_strings = args[i]
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+            },
+            "--string-array-threshold" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("missing argument for --string-array-threshold".into());
+                }
+                opts.string_array_threshold = Some(
+                    args[i]
+                        .parse::<f32>()
+                        .map_err(|_| "invalid --string-array-threshold (0..1)")?,
+                );
+            },
             "--domain-lock" => {
                 i += 1;
                 if i >= args.len() {
@@ -298,6 +327,15 @@ fn run(opts: CliOptions) -> std::result::Result<(), Box<dyn std::error::Error>> 
     if opts.opaque_predicates {
         builder = builder.js_ast(true).opaque_predicates(true);
     }
+    if opts.property_keys {
+        builder = builder.js_ast(true).property_keys(true);
+    }
+    if !opts.reserved_strings.is_empty() {
+        builder = builder.reserved_strings(opts.reserved_strings.clone());
+    }
+    if let Some(t) = opts.string_array_threshold {
+        builder = builder.string_array_threshold(t);
+    }
     if !opts.domain_lock.is_empty() {
         builder = builder.js_ast(true).domain_lock(opts.domain_lock.clone());
     }
@@ -366,50 +404,97 @@ fn warn_aggressive(opts: &CliOptions) {
 }
 
 fn print_usage() {
-    println!(
-        "ssukka - HTML obfuscation tool
+    // Align descriptions in a fixed column; flags wider than the field wrap.
+    let w = 26usize;
+    let indent = " ".repeat(4 + w + 2);
+    let opt = |flag: &str, desc: &str| {
+        if flag.len() <= w {
+            println!("    {flag:<w$}  {desc}");
+        } else {
+            println!("    {flag}\n{indent}{desc}");
+        }
+    };
 
-USAGE:
-    ssukka [OPTIONS]
-    ssukka -i input.html -o output.html
-    cat input.html | ssukka > output.html
+    println!("ssukka - HTML obfuscation tool\n");
+    println!("USAGE:");
+    println!("    ssukka [OPTIONS]");
+    println!("    ssukka -i input.html -o output.html");
+    println!("    cat input.html | ssukka > output.html\n");
 
-OPTIONS:
-    -i, --input <FILE>       Input HTML file (default: stdin)
-    -o, --output <FILE>      Output file (default: stdout)
-    --seed <N>               Seed for deterministic output
+    println!("OPTIONS:");
+    opt("-i, --input <FILE>", "Input HTML file (default: stdin)");
+    opt("-o, --output <FILE>", "Output file (default: stdout)");
+    opt("--seed <N>", "Seed for deterministic output");
 
-  Cosmetic (on by default):
-    --no-rename              Disable class/ID renaming
-    --no-minify-css          Disable CSS minification
-    --no-minify-js           Disable JS minification
-    --no-encode-entities     Disable entity encoding
-    --no-shuffle-attrs       Disable attribute order shuffling
-    --no-randomize-case      Disable tag case randomization
-    --js-string-encoding <none|escapes|array>
-                             JS string-literal strategy (default: escapes)
-
-  Advanced (opt-in - change DOM/size/runtime; see README threat model):
-    --comment-split          Split long words with empty comments (anti-regex-scraper)
-    --honeypots <N>          Inject N invisible decoy nodes (scraper traps)
-    --structural             Move text into encoded attrs, restore client-side
-    --polymorphic            Randomize transforms per run (no fixed seed)
-    --js-ast                 Use the oxc AST engine for <script> JS
-    --mangle                 Scope-aware local identifier renaming (implies --js-ast)
-    --poison-names           Rename locals to misleading names (implies --js-ast)
-    --cff                    Control-flow flattening (implies --js-ast)
-    --dead-code              Opaque-predicate dead code injection (implies --js-ast)
-    --self-defending         Disable console if the script is beautified (implies --js-ast)
-    --mba                    Encode integer literals as mixed boolean-arithmetic (implies --js-ast)
-    --opaque-predicates      Wrap statements in always-true opaque guards (implies --js-ast)
-    --domain-lock <HOSTS>    Crash the script off these comma-separated hosts (implies --js-ast)
-    --lock-expiry <UNIX_SECS>  Crash the script after this Unix time (implies --js-ast)
-    --dead-code-threshold <0..1>   Fraction of sites that get dead code
-    --watermark <N>          Embed an invisible zero-width id for provenance
-    --ai-opt-out             Inject AI opt-out <meta> (noai + TDMRep + AIPREF) into <head>
-    --inline-local-resources Inline local <link>/<script src> (offline only)
-    --base-dir <DIR>         Base directory for resolving local resources
-
-    -h, --help               Print this help message"
+    println!("\n  Cosmetic (on by default):");
+    opt("--no-rename", "Disable class/ID renaming");
+    opt("--no-minify-css", "Disable CSS minification");
+    opt("--no-minify-js", "Disable JS minification");
+    opt("--no-encode-entities", "Disable entity encoding");
+    opt("--no-shuffle-attrs", "Disable attribute order shuffling");
+    opt("--no-randomize-case", "Disable tag case randomization");
+    opt(
+        "--js-string-encoding <none|escapes|array>",
+        "JS string-literal strategy (default: escapes)",
     );
+
+    println!("\n  Advanced (opt-in - change DOM/size/runtime; see README threat model):");
+    opt(
+        "--comment-split",
+        "Split long words with empty comments (anti-regex-scraper)",
+    );
+    opt("--honeypots <N>", "Inject N invisible decoy nodes (scraper traps)");
+    opt("--structural", "Move text into encoded attrs, restore client-side");
+    opt("--polymorphic", "Randomize transforms per run (no fixed seed)");
+    opt("--js-ast", "Use the oxc AST engine for <script> JS");
+    opt("--mangle", "Scope-aware local identifier renaming (implies --js-ast)");
+    opt("--poison-names", "Rename locals to misleading names (implies --js-ast)");
+    opt("--cff", "Control-flow flattening (implies --js-ast)");
+    opt("--dead-code", "Opaque-predicate dead code injection (implies --js-ast)");
+    opt(
+        "--self-defending",
+        "Disable console if the script is beautified (implies --js-ast)",
+    );
+    opt(
+        "--mba",
+        "Encode integer literals as mixed boolean-arithmetic (implies --js-ast)",
+    );
+    opt(
+        "--opaque-predicates",
+        "Wrap statements in always-true opaque guards (implies --js-ast)",
+    );
+    opt(
+        "--property-keys",
+        "Convert object keys to computed string keys (implies --js-ast)",
+    );
+    opt(
+        "--reserved-strings <S>",
+        "Comma-separated strings to keep out of the string array",
+    );
+    opt(
+        "--string-array-threshold <0..1>",
+        "Fraction of strings the string array encodes",
+    );
+    opt(
+        "--domain-lock <HOSTS>",
+        "Crash the script off these comma-separated hosts (implies --js-ast)",
+    );
+    opt(
+        "--lock-expiry <UNIX_SECS>",
+        "Crash the script after this Unix time (implies --js-ast)",
+    );
+    opt("--dead-code-threshold <0..1>", "Fraction of sites that get dead code");
+    opt("--watermark <N>", "Embed an invisible zero-width id for provenance");
+    opt(
+        "--ai-opt-out",
+        "Inject AI opt-out <meta> (noai + TDMRep + AIPREF) into <head>",
+    );
+    opt(
+        "--inline-local-resources",
+        "Inline local <link>/<script src> (offline only)",
+    );
+    opt("--base-dir <DIR>", "Base directory for resolving local resources");
+
+    println!();
+    opt("-h, --help", "Print this help message");
 }

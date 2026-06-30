@@ -42,6 +42,12 @@ pub struct ObfuscationConfig {
     // JS (cosmetic, on by default)
     pub js_string_encoding: JsStringEncoding,
     pub minify_js: bool,
+    /// String literals kept out of the string array (matched by exact value), so
+    /// strings that reflection/`eval` must see stay readable.
+    pub reserved_strings: Vec<String>,
+    /// Fraction (0.0..=1.0) of eligible string literals the string array encodes;
+    /// below 1.0 trades coverage for size/speed.
+    pub string_array_threshold: f32,
 
     // Honeypots / decoys (opt-in)
     /// Inject invisible decoy links, fields, and classes to trap scrapers.
@@ -79,6 +85,9 @@ pub struct ObfuscationConfig {
     /// Wrap top-level expression statements in always-true opaque-predicate
     /// guards, putting real code behind a condition to analyze (requires AST).
     pub opaque_predicates: bool,
+    /// Convert object-literal keys to computed string keys (`{foo:1}` ->
+    /// `{["foo"]:1}`) so the string array can encode them. Requires AST.
+    pub property_keys: bool,
     /// Allowed hostnames; if non-empty, inject a guard that crashes the script
     /// off these domains (and their subdomains). Requires AST.
     pub domain_lock: Vec<String>,
@@ -134,6 +143,8 @@ impl Default for ObfuscationConfig {
 
             js_string_encoding: JsStringEncoding::Escapes,
             minify_js: true,
+            reserved_strings: Vec::new(),
+            string_array_threshold: 1.0,
 
             inject_honeypots: false,
             honeypot_count: 6,
@@ -149,6 +160,7 @@ impl Default for ObfuscationConfig {
             self_defending: false,
             mba: false,
             opaque_predicates: false,
+            property_keys: false,
             domain_lock: Vec::new(),
             lock_expiry_secs: None,
 
@@ -175,6 +187,7 @@ impl ObfuscationConfig {
                 || self.self_defending
                 || self.mba
                 || self.opaque_predicates
+                || self.property_keys
                 || !self.domain_lock.is_empty()
                 || self.lock_expiry_secs.is_some()
                 || self.js_string_encoding == JsStringEncoding::Array)
