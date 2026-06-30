@@ -41,6 +41,7 @@ wasm-bindgen = { version = "0.2.126", optional = true } # browser/edge bindings
 
 [dev-dependencies]
 criterion = "0.8.2"
+dom_smoothie = "0.18.0" # readability-tier extractor for the extraction-efficacy tests
 
 [lints.rust]
 unsafe_code = "forbid"

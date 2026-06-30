@@ -6,6 +6,7 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic 
 
 ### Added
 
+- **Readability-tier efficacy tests** (`tests/extraction.rs`, dev-dep `dom_smoothie` - a Mozilla Readability port): confirm `--structural` starves a real extractor (recall ~0) and the readability tier drops hidden decoys. A naive-tier test in `tests/efficacy.rs` shows `--structural` + `--honeypots` _poisons_ a visibility-blind scraper (real-body recall ~0.09 while it harvests decoy filler).
 - **Editable decoy/word lists in `assets/`** via `ssukka::wordlist::parse` + `include_str!` (comma-separated, `#`-commented). Embedded at build time: editable without touching source, no runtime I/O (offline/WASM-safe). (`src/wordlist.rs`, `assets/honeypot/*.txt`)
 - **AI opt-out transport helpers** (`ssukka::ai_opt_out`): standalone functions for the canonical AIPREF/TDMRep transports an HTML library can't emit itself — `robots_txt()` (a site-wide AIPREF `Content-Usage: train-ai=n` rule plus a `Disallow` group per known AI training crawler), `content_usage_header()` (the HTTP response-header value), and `well_known_tdmrep_json()` (the `/.well-known/tdmrep.json` body, with optional `tdm-policy` URL) — for edge/server (e.g. Cloudflare Worker) deployment. Targeted crawler tokens are exposed as `AI_TRAINING_CRAWLERS` and the tracked AIPREF vocabulary draft as `AIPREF_VOCAB_DRAFT`. (`src/ai_opt_out.rs`)
 

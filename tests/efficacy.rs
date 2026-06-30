@@ -5,6 +5,7 @@
 //! crawlers ~use): drop `<script>`/`<style>`/comments, strip tags, decode
 //! entities, tokenize. `token_recall` is the fraction of original content words
 //! still recovered - low means hidden, high means the transform is only friction.
+//! The stronger readability tier (visibility-aware) lives in `tests/extraction.rs`.
 //!
 //! This is the *efficacy* arm; *fidelity* (a JS client still renders the
 //! original) is proven by the Node-execution tests, so low recall != "broken".
@@ -169,4 +170,31 @@ fn comment_split_breaks_substring_search_only() {
     let recall = token_recall(&naive_text(ARTICLE), &naive_text(&obf));
     println!("comment-split: substring-hidden, DOM recall = {recall:.2}");
     assert!(recall > 0.8, "comment-split does not stop a comment-dropping extractor");
+}
+
+#[test]
+fn structural_plus_honeypots_poison_naive_extraction() {
+    // --structural moves the real body into data-attrs; the display:none decoy
+    // blocks survive a naive, visibility-blind scraper. So it harvests filler, not
+    // the article - recall collapses while it still ingests a blob of decoy tokens.
+    // (A readability-tier extractor drops the hidden decoys; see extraction.rs.)
+    let reference = naive_text(ARTICLE);
+    let obf = Obfuscator::builder()
+        .seed(1)
+        .structural_obfuscation(true)
+        .inject_honeypots(true)
+        .honeypot_count(10)
+        .build()
+        .obfuscate(ARTICLE)
+        .unwrap();
+    let got = naive_text(&obf);
+    let recall = token_recall(&reference, &got);
+    println!(
+        "poison: real-body recall = {recall:.2}, harvested tokens = {}",
+        got.len()
+    );
+    // Real body starved (only the non-flow <title> survives).
+    assert!(recall < 0.3, "real body should be starved, got {recall:.2}");
+    // ...yet the scraper still walks away with a pile of decoy filler.
+    assert!(got.len() >= 10, "decoys should supply filler tokens, got {}", got.len());
 }
